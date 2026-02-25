@@ -4,52 +4,350 @@
 In this section we will discuss various solutions the Linux kernel
 provides for tracing and monitoring.
 
-\section{In-Kernel Tracing}
+\section{General Architecture}
+
+AMAZING SOURCE: https://leezhenghui.github.io/linux/2019/03/05/exploring-usdt-on-linux.html
+ALSO THIS: https://terenceli.github.io/%E6%8A%80%E6%9C%AF/2020/08/29/perf-arch
+
+Very high overview: basically there are some event sources that write
+to buffers.  There are source events, buffers (frameworks),
+kernel-userspace interfaces, user frontends.
+
+Puctures:
+
+- kernelspace dynamic and static sources write to a buffer or memory location through a well defined api. The userspace interacts with the buffer via a well defined api. Tools use this information to provide a nicer developer workflow and better interface
+- user gets a file descriptor woth a well defined interface, it calls read on it which collects information from the kernel sources
+- famous pocture with static and dynamic event categories, that is shown in Brendan Gregg's
+website, also here at page 13:
+https://dspacemainprd01.lib.uwaterloo.ca/server/api/core/bitstreams/df5a14f4-028e-4a56-a1d0-691c41da7e0d/content
+
+\section{Tracing Frameworks}
+
+\section{Ftrace}
+
+Structure:
+
+- A bit of history
+- architecture
+- in-kernel api
+- user space api
+
+Good intro:
+https://docs.redhat.com/en/documentation/red_hat_enterprise_linux_for_real_time/7/html/tuning_guide/appe-detailed_description_of_ftrace
+
+There is a naming issue as ftrace was born as the function tracer, but
+has evolved into the main tracing infrastructure used by other types
+of tracers. We will now talk about the general unfrastructure.
+
+We write to buffer with trace_printk().
+SEE: kernel/trace/trace_printk.c
+modules trace_printk()'s formats are autosaved in struct trace_bprintk_fmt
+which are queued on trace_bprintk_fmt_list.
+
+An important abstraction is the struct tracer (kernel/trace/trace.h)
+which represents a specific tracer and its callbacks to interact
+with tracefs. Then you do tracer_init and other tracer_ functions.
+
+trace.h:1450
+
+   extern struct tracer nop_trace;
+
+From: https://www.kernel.org/doc/html/latest/trace/events.html
+Trace
+events can be made to conditionally invoke trigger ‘commands’ which
+can take various forms and are described in detail below; examples
+would be enabling or disabling other trace events or invoking a stack
+trace whenever the trace event is hit. Whenever a trace event with
+attached triggers is invoked, the set of trigger commands associated
+with that event is invoked.
+
+trace.h:1997
+   struct event_command {
+
+Not that you also have event filtering.
+     
+The trace array contains per-CPU trace arrays. This is the highest
+level data structure that indivisual tracers deal with. 
+
+Interesting: lockless ringbuffer design TODO:
+https://www.kernel.org/doc/html/latest/trace/ring-buffer-design.html
+The ring buffer is divided in pages. Each CPU has its own list of
+pages where it can write, and the reader may read from any per-cpu
+buffer. For this reason for each per-cpu buffer, the reader has its
+own page separate from the rest. When the reader has done reading it,
+it swaps it with another page. If the writer wraps, it needs to push
+the head forward. Here we need to use cmpxchg since we need to make
+sure that the writer and the reader are not changing the head
+at the same time.
+SEE: kernel/trace/ring_buffer.c
+
+There are several tracers here, the most famous one is the function
+tracer.
+
+\subsection{Tracefs}
+
+We interface with ftrace through tracefs. Ftrace creates the tracefs
+file system, this is usually mounted in sysfs in
+`/sys/kernel/tracing`. We will refer to the location where tracefs is
+mounted as `/TRACEFS` throughout this discussion. There are multiple
+tracers available under `/TRACEFS/available_tracers`.  You specify a
+tracer in `/TRACEFS/current_tracer`, activate tracing with
+`/TRACEFS/tracing_on` and read traces in `/TRACEFS/trace` or
+`/TRACEFS/trace_pipe` consumer. Error are written to
+`/TRACEFS/error_log`.
+
+TODO
+
+
+\section{perf_event}
+
+Structure:
+
+- A bit of history
+- architecture
+- in-kernel api
+- user space api
+
+Perf: event state machine
+
+You interact with perf via the `perf_event_open` syscall.
+Used for performance counting. Has its own ring buffer.
+
+They are simple as they only signal that an event is happened. This
+is then processed by another program like perf.
+
+\section{eBPF}
+
+Structure:
+
+- A bit of history
+- architecture
+- in-kernel api
+- user space api
+
+TODO: just an introduction.
+Has its own ring buffer, but also provides maps which are of
+various types.
+
+\section{Static Event Sources}
 
 \subsection{Tracepoints}
 
+Aka. static event tracing. 
+
+There are more than 1000 traceoints available (grep -R TRACE_EVENT
+include/trace/events)
+
+USEFUL: https://mmi.hatenablog.com/entry/2018/03/04/052249
+
+Interesting: static-key mechanism
+https://www.kernel.org/doc/html/latest/staging/static-keys.html
+
+Put an entire implementation of a simple module that registers a
+tracepoint at the appendix.
+
+
+\subsection{User Statically-Defined Tracing (USDT)}
+
+Note: this is actually a uprobe in disguise, it expects to attach to
+tracepoints defined in userspace programs.
+
+TODO: write some code to understand this
+
+\subsection{Perf events}
+
+Also talk about hardware tracing here. Perf events are easy, they just
+notify that an even has appened. There are hardware events and
+software events.
+
+There is this abstraction of a performance mesuring unit. This is an
+generic object that can manages a set of performance events and
+counters. It handles registration, stopping and reading of events.
+Code is in linux/include/perf_event.h; struc pmu: 329.
+
+
+Security implications: https://www.kernel.org/doc/html/latest/admin-guide/perf-security.html
+
+perf_event_open(2)
+
+       A call to perf_event_open() creates a file descriptor that  allows  mea‐
+       suring performance information.  Each file descriptor corresponds to one
+       event  that is measured; these can be grouped together to measure multi‐
+       ple events simultaneously.
+
+       Events can be enabled and disabled in two ways:  via  ioctl(2)  and  via
+       prctl(2).  When an event is disabled it does not count or generate over‐
+       flows but does continue to exist and maintain its count value.
+
+       Events  come  in two flavors: counting and sampled.  A counting event is
+       one that is used for counting the aggregate number of events that occur.
+       In general, counting event results are gathered with a read(2) call.   A
+       sampling  event  periodically  writes  measurements to a buffer that can
+       then be accessed via mmap(2).
+
+Another resource:
+  https://github.com/torvalds/linux/blob/master/tools/perf/design.txt
+       
+\section{Dynamic Event Sources}
+
+\subsection{Kprobes and Kretprobes}
+
+Architecture
+------------
+
+There are kprobes and kretprobes. From the docs:
+
+```
+When a kprobe is registered, Kprobes makes a copy of the probed
+instruction and replaces the first byte(s) of the probed instruction
+with a breakpoint instruction (e.g., int3 on i386 and x86_64).
+
+When a CPU hits the breakpoint instruction, a trap occurs, the CPU’s
+registers are saved, and control passes to Kprobes via the
+notifier_call_chain mechanism. Kprobes executes the “pre_handler”
+associated with the kprobe, passing the handler the addresses of the
+kprobe struct and the saved registers.
+
+Next, Kprobes single-steps its copy of the probed instruction. (It
+would be simpler to single-step the actual instruction in place, but
+then Kprobes would have to temporarily remove the breakpoint
+instruction. This would open a small time window when another CPU
+could sail right past the probepoint.)
+
+After the instruction is single-stepped, Kprobes executes the
+“post_handler,” if any, that is associated with the kprobe. Execution
+then continues with the instruction following the probepoint.
+```
+
+Picture: show this graphically. Take inspiration to the lwn article.
+
+Kretprobes do the same but by playing with the return address, which
+is places pushed onto the stack by the caller.
+
+Note that kprobes can do everything, which is very dangerous.
+
+Kprobes may perform jump optimization if the architecture supports
+it and the kernel was built with CONFIG_OPTPROBES=y. In this case,
+instead of a breakpoint instruction, the CPU performs a jump instead.
+
+Note that kprobes do not work well with inlining.
+
+Interface
+---------
+
+API is in include/linux/kprobes.h
+
+    struct kprobe { ... }
+    typedef int (*kprobe_pre_handler_t) (struct kprobe *, struct pt_regs *);
+    typedef void (*kprobe_post_handler_t) (struct kprobe *, struct pt_regs *,
+		    		       unsigned long flags);
+
+Kprobes have probe handlers, a kprobe manager and architecture
+dependent layers for messing with instruction and exceptions.
+
+You call register / undegister kprobe / kretprobe. You can enable and
+disable them.
+
+You can use a symbol instead of an address, the kernel will resolve
+the address from the symbol using System.map symbol table.
+
+The list of registered kprobes is visible under DEBUGFS/kprobes/list
+
+
+Implementation
+--------------
+
+kernel/kprobes.c implements the mangaer, which stores an hashmap of
+kprobes indexed by their address at which the probe is placed, and
+blacklisted entries. Insertion and deletion to this table is guarded
+by a mutex to prevent these operations from executing simultaneously.
+
+```
+Whenever a probe is hit, the probe handler is called with interrupts disabled. Interrupts are disabled because handling a probe is a multiple step process which involves breakpoint handling and single-step execution of the probed instruction. There is no easy way to save the state between these operations hence interrupts are kept disabled during probe handling.
+```
+
+Example implementation usage kprobe_table:
+
+kernel/kprobes.c:378
+```
+struct kprobe *get_kprobe(void *addr)
+{
+	struct hlist_head *head;
+	struct kprobe *p;
+
+	head = &kprobe_table[hash_ptr(addr, KPROBE_HASH_BITS)];
+	hlist_for_each_entry_rcu(p, head, hlist,
+				 lockdep_is_held(&kprobe_mutex)) {
+		if (p->addr == addr)
+			return p;
+	}
+
+	return NULL;
+}
+```
+
+Taking x86_64 as an example, the interrupt handler for int3 is in
+arch/x86/kernel/traps.c and indeed calls the kprobe handler if kprobes
+are enabled:
+
+```
+static bool do_int3(struct pt_regs *regs)
+{
+	int res;
+  // ...
+#ifdef CONFIG_KPROBES
+	if (kprobe_int3_handler(regs))
+		return true;
+#endif
+  // ...
+}
+```
+
+Which is defined in arch/x86/kernel/kprobes/core.c. Show the call
+stack here
+
+Main source of information:
+https://www.kernel.org/doc/html/latest/trace/kprobes.html
+COOL: https://lwn.net/Articles/132196/
+
+\subsection{Uprobes and Uretprobes}
+
+TODO: write some code to understand this
+
+\subsection{Fprobes (?)}
+
+TODO: write some code to understand this
+Basically keyprobes but can probe only on entering / exiting
+
+\subsection{Eprobes}
+
+TODO: write some code to understand this
+TODO: wrapper around kprobes?
+
+\subsection{ftrace}
+
+Technology: gcc -pg
+
+\section{Tracing Interfaces}
+
+perf_event_open(2), bpf(2), ioctl(2), tracefs
+
+\section{Tracing Front-ends}
+
+\subsection{Perf, perf-tools}
+
 TODO
-
-\subsection{Ftrace}
-
-TODO
-
-\subsection{Kprobes}
-
-TODO
-
-\subsection{Fprobes}
-
-TODO
-
-\subsection{eBPF}
-
-TODO
-
-\section{Userspace Tracing}
-
-TODO
-
-\subsection{Ptrace}
-
-TODO
-
-\subsection{Uprobes}
-
-TODO
-
-\section{Tracing Utilities}
-
-TODO
-
-\subsection{Perf}
-
-TODO
+Confirmed: the perf command line tool uses tracefs to trace
+tracepoints.
 
 \subsection{trace-cmd}
 
 TODO
 
 \subsection{strace}
+
+TODO
+
+\subsection{systemtap}
 
 TODO
