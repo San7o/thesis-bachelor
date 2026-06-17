@@ -1,55 +1,43 @@
-# Thesis Template
+# Thesis
 
-[![ci](https://github.com/unitn-drive/thesis/actions/workflows/ci.yaml/badge.svg)](https://github.com/unitn-drive/thesis/actions/workflows/ci.yaml)
+## Usage
 
-Thesis Template for Computer Science at the [University of Trento](https://www.unitn.it)
+clone:
 
-## Development
+```sh
+git clone https://github.com/San7o/thesis.git
+cd thesis
+```
 
-> [!TIP]
-> It is highly recommended to use [`Visual Studio Code`](https://code.visualstudio.com) editor
+install Dependencies:
 
-### Requirements
+```sh
+npm ci
+```
 
-| **Name**   | **Homepage**                  |
-| ---------- | ----------------------------- |
-| `TeX Live` | <https://www.tug.org/texlive> |
-| `Node.js`  | <https://nodejs.org>          |
-| `npm`      | <https://www.npmjs.com>       |
-
-### Preparation
-
-1. Clone
-
-   ```sh
-   git clone https://github.com/unitn-drive/thesis.git
-   cd thesis
-   ```
-
-1. Install Dependencies
-
-   ```sh
-   npm ci
-   ```
-
-### Build
+build:
 
 ```sh
 npm run build
 ```
 
-### Scripts
+## Links
 
-> **Note**: Execute with `npm run <NAME>`
+Most useful resources:
 
-| **Name** | **Description**  |
-| -------- | ---------------- |
-| `build`  | Build PDF        |
-| `check`  | Check for errors |
-| `clean`  | Clean            |
-| `fix`    | Fix errors       |
+- [The Linux Kernel Documentation](https://www.kernel.org/doc/html/latest/)
+   - More specifically, the
+     [tracing](https://www.kernel.org/doc/html/latest/trace/index.html) section
+- [Linux Kernel Internals](https://kernel-internals.org/)
 
-## License
+Code:
 
-This project is licensed under the [MIT](https://opensource.org/licenses/MIT) license \
-See [LICENSE](./LICENSE) file for details
+- [linux-kprobe-example](https://github.com/San7o/linux-kprobe-example): example
+  kernel module that registers a kprobe on a syscall
+- [linux-tracepoint-example](https://github.com/San7o/linux-tracepoint-example):
+  example kernel module registering a tracepoint
+- [linux-perf-event-example](https://github.com/San7o/linux-perf-event-example):
+  example kernel module registering a software perf event through a Performance
+  Monitor Unit (PMU)
+- [ebpf-c-sample](https://github.com/San7o/ebpf-c-sample): sample project for an
+  eBPF program + loader in C with libbpf and clang
