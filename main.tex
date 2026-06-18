@@ -22,6 +22,7 @@
 % PDF/A
 \usepackage[a-1b]{pdfx}
 % Image
+\usepackage{import}
 \usepackage{graphicx}
 \usepackage{wrapfig}
 \usepackage{stackengine}
@@ -33,6 +34,25 @@
 \hypersetup{breaklinks=true}
 % List
 \usepackage{enumitem}
+% Graphs
+\usepackage[utf8]{inputenc}
+\usepackage{tikz}
+\usetikzlibrary{positioning, shapes.geometric, fit, backgrounds, calc}
+% Color palette
+\definecolor{userspacebg}{RGB}{240, 244, 248}
+\definecolor{kernelspacebg}{RGB}{248, 249, 250}
+\definecolor{layerbrand}{RGB}{33, 37, 41}
+\definecolor{accentblue}{RGB}{42, 110, 187}
+\definecolor{accentgreen}{RGB}{40, 167, 69}
+\definecolor{accentorange}{RGB}{245, 158, 11}
+% Plots
+\usepackage{pgfplots}
+\usepgfplotslibrary{dateplot}
+\pgfplotsset{compat=1.18}
+% Color palette
+\definecolor{patchGreen}{HTML}{2e7d32} % Lines added
+\definecolor{patchRed}{HTML}{c62828}   % Lines deleted
+\definecolor{gridGray}{HTML}{ededed}
 
 % START: DELETE ME
 \usepackage{lipsum}
@@ -74,10 +94,10 @@
   \input{etc/abstract.tex}
 
   % Chapters
-  \input{chapters/chapter-0.tex}
-  \input{chapters/chapter-1.tex}
-  \input{chapters/chapter-2.tex}
-  \input{chapters/chapter-3.tex}
+  \input{chapters/chapter-0-introduction/chapter-0.tex}
+  \input{chapters/chapter-1-tracing/chapter-1.tex}
+  \input{chapters/chapter-2-ebpf/chapter-2.tex}
+  \input{chapters/chapter-3-kivebpf/chapter-3.tex}
 
   % Conclusions
   \input{etc/conclusions.tex}

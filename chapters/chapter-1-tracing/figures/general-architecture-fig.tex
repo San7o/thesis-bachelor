@@ -1,0 +1,118 @@
+\begin{figure}[htbp]
+\centering
+
+\begin{tikzpicture}[
+    scale=1.0,
+    every node/.style={
+      transform shape
+    },
+    node distance=1.5cm,
+    % Base Styles for Core Architecture Blocks
+    block/.style={
+      rectangle,
+      draw=gray!80,
+      fill=white,
+      rounded corners=4px, 
+      minimum width=6cm,
+      minimum height=1.2cm,
+      font=\large\bfseries,
+      align=center,
+      line width=1.5pt
+    },
+    % Custom container just for Interfaces to hold internal text comfortably
+    container/.style={
+      rectangle,
+      draw=gray!80,
+      fill=white,
+      rounded corners=4px,
+      minimum width=10cm,
+      minimum height=2.4cm,
+      font=\large\bfseries,
+      align=center,
+      line width=1.5pt
+    },
+    % Styles for the inner blocks inside Interfaces
+    inner_block/.style={
+      rectangle,
+      draw=gray!50,
+      fill=gray!5,
+      rounded corners=2px,
+      minimum width=2.6cm,
+      minimum height=0.8cm,
+      font=\small\bfseries,
+      align=center,
+      line width=1pt
+    },
+    flow/.style={
+      ->,
+      >=stealth,
+      line width=2pt,
+      draw=gray!70
+    }
+]
+
+    % =========================================================================
+    % ARCHITECTURE BLOCKS
+    % =========================================================================
+
+    % Frontends
+    \node[block] (frontends) {Frontends};
+
+    % Interfaces
+    \node[container, below=of frontends, minimum width=13cm] (interfaces) {};
+    \node[font=\large\bfseries, anchor=north, yshift=-5pt] at (interfaces.north) {Interfaces};
+    \node[inner_block] (syscall) at ($(interfaces.center) + (-4.5cm, -0.3cm)$) {System\\Calls};
+    \node[inner_block] (pseudo)  at ($(interfaces.center) + (-1.5cm, -0.3cm)$) {Pseudo\\Filesystems};
+    \node[inner_block] (socket)  at ($(interfaces.center) + (1.5cm, -0.3cm)$) {Network /\\Sockets};
+    \node[inner_block] (vendor)  at ($(interfaces.center) + (4.5cm, -0.3cm)$) {Block / Char\\Devices};
+
+    % Frameworks
+    \node[container, below=of interfaces, minimum height=3.5cm] (frameworks) {};
+    \node[font=\large\bfseries, anchor=north, yshift=-5pt] at (frameworks.north) {Tracing Frameworks};
+    \node[inner_block] (ftrace) at ($(frameworks.center) + (-3.0cm, 0.2cm)$) {ftrace};
+    \node[inner_block] (perfevent)  at ($(frameworks.center) + (-0.0cm, 0.2cm)$) {perf\_event};
+    \node[inner_block] (ebpf)  at ($(frameworks.center) + (3.0cm,  0.2cm)$) {eBPF};
+    \node[inner_block] (audit)  at ($(frameworks.center) + (-1.5cm, -1.0cm)$) {audit};
+    \node[inner_block] (vendor)  at ($(frameworks.center) + (+1.5cm, -1.0cm)$) {Vendor \\ Specific};
+
+    % Events
+    \node[container, below=of frameworks] (sources) {};
+    \node[font=\large\bfseries, anchor=north, yshift=-5pt] at (sources.north) {Event Sources / Backends};
+    \node[inner_block] (static) at ($(sources.center) + (-3.0cm, -0.3cm)$) {Static};
+    \node[inner_block] (dynamic)  at ($(sources.center) + (-0.0cm, -0.3cm)$) {Dynamic};
+    \node[inner_block] (perf)  at ($(sources.center) + (3.0cm,  -0.3cm)$) {Perf};
+    
+    % =========================================================================
+    % BACKGROUND SPLIT (Userspace vs Kernelspace)
+    % =========================================================================
+    \begin{scope}[on background layer]
+        % Calculate a clean mid-point y-coordinate between Frontends and Interfaces
+        \coordinate (BoundaryY) at ($(frontends.south)!0.5!(interfaces.north)$);
+        
+        % The background dimensions map cleanly to the width of the interface box
+        \coordinate (LeftEdge) at (interfaces.west);
+        \coordinate (RightEdge) at (interfaces.east);
+        
+        % Shading the background zones
+        \fill[gray!4] (LeftEdge |- frontends.north) rectangle (RightEdge |- BoundaryY);
+        \fill[gray!12] (LeftEdge |- BoundaryY) rectangle (RightEdge |- sources.south);
+        
+        % Dashed logical boundary line between the blocks
+        \draw[dashed, line width=2pt, gray!60] (LeftEdge |- BoundaryY) -- (RightEdge |- BoundaryY);
+        
+        % INTERNAL LABELS: Added vertical yshift to separate them cleanly from the dashed line
+        \node[above right, text=black!40, font=\bfseries\small, inner sep=0pt, xshift=0.3cm, yshift=0.2cm] at (LeftEdge |- BoundaryY) {USER SPACE};
+        \node[below right, text=black!40, font=\bfseries\small, inner sep=0pt, xshift=0.3cm, yshift=-0.2cm] at (LeftEdge |- BoundaryY) {KERNEL SPACE};
+    \end{scope}
+
+    % =========================================================================
+    % CONTEXTUAL CONNECTORS
+    % =========================================================================
+    \draw[flow] (frontends) -- (interfaces);
+    \draw[flow] (interfaces) -- (frameworks);
+    \draw[flow] (frameworks) -- (sources);
+
+\end{tikzpicture}
+\caption{High-level architectural layout of the Linux tracing ecosystem.}
+\label{fig:linux_tracing_architecture}
+\end{figure}

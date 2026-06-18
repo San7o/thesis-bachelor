@@ -29,6 +29,8 @@ Most useful resources:
    - More specifically, the
      [tracing](https://www.kernel.org/doc/html/latest/trace/index.html) section
 - [Linux Kernel Internals](https://kernel-internals.org/)
+- [Exploring USDT Probes on Linux](https://leezhenghui.github.io/linux/2019/03/05/exploring-usdt-on-linux.html)
+- [Linux kernel perf architecture](https://terenceli.github.io/%E6%8A%80%E6%9C%AF/2020/08/29/perf-arch)
 
 Code:
 
