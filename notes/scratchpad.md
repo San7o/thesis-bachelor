@@ -293,7 +293,9 @@ So `mcount` is actually never called with dynamic ftrace!!
 
 Meaning:
 
-- dynamic tracing: we use `ftrace_caller` or `NOP`
+- dynamic tracing: we use `ftrace_caller`, which is implemented as a series of
+  `NOP`, or as a call to `ftrace_stub`, whose address is changed dynamically
+  based on the current tracer.
 - static tracing: we use `__fentry__` on x86, or `mcount` on the others
 
 We see `ftrace_called` in arm64 `arch/arm64/kernel/entry-ftrace.S:267`:
@@ -898,7 +900,160 @@ From `include/linux/kprobes.c` we see a global kprobe_table list:
 static struct hlist_head kprobe_table[KPROBE_TABLE_SIZE];
 ```
 
+Example program:
 
+```
+#include <linux/module.h>
+#include <linux/kprobes.h>
+
+#define MAX_FILENAME_LEN 1024
+
+/* This gets executed before single-stepping the probed instruction */
+static int hello_kprobe_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+  const char __user * user_filename =
+    (const char __user*) regs_get_kernel_argument(regs, 1); /* regs start at 0 */
+  if (!user_filename)
+  {
+    printk(KERN_ERR "Kprobe: error reading filename in pre handler\n");
+    return -1;
+  }
+
+  char filename[MAX_FILENAME_LEN] = {0};
+  long ret = raw_copy_from_user(filename, user_filename,
+                                MAX_FILENAME_LEN);
+  if (ret < 0)
+  {
+    printk(KERN_ERR "Kprobe: error copying filename\n");
+    return -1;
+  }
+  
+  printk(KERN_INFO "Kprobe: intercepted access to %s\n", filename);
+
+  return 0;
+}
+
+/* This gets executed after single-stepping the probed instruction */
+static void hello_kprobe_post_handler(struct kprobe *kprobe,
+                                      struct pt_regs *regs,
+                                      unsigned long flags)
+{
+  /* does nothing */
+}
+
+struct kprobe kp = (struct kprobe) {
+  /* static int do_sys_openat2(int dfd, const char __user *filename,
+                               struct open_how *how) */
+  .symbol_name  = "do_sys_openat2",
+  .pre_handler  = hello_kprobe_pre_handler,
+  .post_handler = hello_kprobe_post_handler,
+};
+
+static int __init hello_kprobe_init(void)
+{
+  printk(KERN_INFO "Kprobe: Hello, kprobe!\n");
+
+  int ret = register_kprobe(&kp);
+  if (ret < 0)
+  {
+    printk(KERN_ERR "Kprobe: error registering kprobe\n");
+    return -1;
+  }
+
+  /* If kp->flags is set KPROBE_FLAG_DISABLED then it needs to be
+   * enabled to use it. */
+  /* enable_kprobe(&kp); */
+
+  /* This is how you disable a kprobe */
+  /* disable_kprobe(&kp); */
+  
+  return 0;
+}
+
+static void __exit hello_kprobe_cleanup(void)
+{
+  unregister_kprobe(&kp);
+  printk(KERN_INFO "Kprobe: unregistered");
+}
+
+module_init(hello_kprobe_init);
+module_exit(hello_kprobe_cleanup);
+
+MODULE_AUTHOR("Giovanni Santini");
+MODULE_DESCRIPTION("kprobe example");
+MODULE_LICENSE("GPL v2");
+```
+
+If `p->flags & KPROBE_FLAG_FTRACE`, the kprobe is registered via the `ftrace`
+instrumentation.
+
+`register_kprobe` sets up the address of the probed instruction from the symbol
+if specified, via `kallsyms_lookup_name` later which performs a binary search of
+the symbol name in the uncompressed string from the `kallsyms_names` array, then
+it checks that the address is valid (if it is in a text area).
+
+Finally it calls `prepare_kprobe`, adds the hash of the kprobe to the
+`kprobe_table` list and calls `arm_kprobe` if it was not disabled, which
+actually modifies the instruction in memory and sets up a breakpoint call
+(`int3` on x86). It sets up emulation, which tries to emulate the probed
+instruction instead of calling an additional trap after single stepping, to
+improve performance. At the end it tries to optimize it.
+
+`int3` handler is defined in `arch/x86/kernel/trace.c` which calls `do_int3`:
+
+```
+static bool do_int3(struct pt_regs *regs)
+{
+	int res;
+
+#ifdef CONFIG_KGDB_LOW_LEVEL_TRAP
+	if (kgdb_ll_trap(DIE_INT3, "int3", regs, 0, X86_TRAP_BP,
+			 SIGTRAP) == NOTIFY_STOP)
+		return true;
+#endif /* CONFIG_KGDB_LOW_LEVEL_TRAP */
+
+#ifdef CONFIG_KPROBES
+	if (kprobe_int3_handler(regs))
+		return true;
+#endif
+	res = notify_die(DIE_INT3, "int3", regs, 0, X86_TRAP_BP, SIGTRAP);
+
+	return res == NOTIFY_STOP;
+}
+NOKPROBE_SYMBOL(do_int3);
+```
+
+The `kprobe_int3_handler` in `arch/x86/kernel/kprobes/core.c` uses two per-cpu
+variable called `current_kprobe` and `kprobe_ctrlblk` and does the following:
+
+- If `current_kprobe` is empty, meaning that a kprobe is not running, then it
+  sets `current_kprobe`. If specified, it calls the `kp->pre_handler` and
+  proceeds to emulate the probed instruction and call the post handler, or to
+  setup the CPU's instruction pointer to the original instruction. In this case,
+  the instruction pointer will be set when the trap returns, the instruction
+  will be executed, and a new trap will be called with `int3` and with
+  `current_kprobe` not empty. This is necessary because jump instructions cannot
+  be emulated or executed during the single step since they would.
+
+- if `current_kprobe` is non empty, which happens after single stepping the
+  instruction and entering the trap again from the previous point. This returns
+  to the normal execution by setting the instruction pointer to the original
+  place (just after the probed instruction).
+
+A kretprobe allows the user do register a callback that gets executed when the
+function returns. Underneath, the kretprobe registers a kprobe
+`pre_handler_kretprobe` that changes the return address when the function is
+entered. The return address is set to a trampoline function. On arm, this
+function triggers a breakpoiont exception, which eventually calls
+`__kretprobe_trampoline_handler`. This function finally calls the user handler,
+and sets the exception's return address to the correct one after the probe.
+
+After registering a kprobe, if the kernel is compiled with CONFIG_OPTPROBES=y,
+it tries to optimize the break instruction with a jump. This does not work if
+the kprobe was based on ftrace. The optimizer logic is quite complex and will
+not be covered here.
 
 Perf
 ----
+
+Example: https://github.com/San7o/linux-perf-event-example/
