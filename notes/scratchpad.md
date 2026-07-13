@@ -1057,3 +1057,73 @@ Perf
 ----
 
 Example: https://github.com/San7o/linux-perf-event-example/
+
+Code in `inclide/linux/perf_event.h`, `kernel/events/core.c`
+
+To define a perf event, we first create an instance of a Performance Monitoring
+Unit (pmu), which is of `struct pmu`:
+
+```
+static struct pmu xtensa_pmu = {
+	.pmu_enable = xtensa_pmu_enable,
+	.pmu_disable = xtensa_pmu_disable,
+	.event_init = xtensa_pmu_event_init,
+	.add = xtensa_pmu_add,
+	.del = xtensa_pmu_del,
+	.start = xtensa_pmu_start,
+	.stop = xtensa_pmu_stop,
+	.read = xtensa_pmu_read,
+};
+```
+
+While the implementation of these functions depends on their context, the most
+interesting function is the `.read`: this will be called to pass the event data
+to the user. More precisely, function sets `event->count` with the value of the
+counter, which is of `local64_t` type.
+
+And register it with:
+
+```
+ret = perf_pmu_register(&hello_pmu, "hello_pmu", -1);
+if (ret)
+  return ret;
+```
+
+The logic that handles the interaction between userspace and the events is
+implemented in the callbacks in `struct pmu`. Each `pmu` has a name and a type.
+
+Types are in `include/uapi/linux/perf_event.h`:
+
+```
+enum perf_type_id {
+	PERF_TYPE_HARDWARE			= 0,
+	PERF_TYPE_SOFTWARE			= 1,
+	PERF_TYPE_TRACEPOINT			= 2,
+	PERF_TYPE_HW_CACHE			= 3,
+	PERF_TYPE_RAW				= 4,
+	PERF_TYPE_BREAKPOINT			= 5,
+
+	PERF_TYPE_MAX,				/* non-ABI */
+};
+```
+
+The `perf_pmu_register()` function initializes the per-CPU context for each cpu,
+registers the pmu to a global list of pmus (`kernel/events/core.c`):
+
+```
+static LIST_HEAD(pmus);
+```
+
+The user drives the event loop, and access the events via the
+`perf_event_open()` syscall (kernel/events/core.c):
+
+```
+SYSCALL_DEFINE5(perf_event_open,
+		struct perf_event_attr __user *, attr_uptr,
+		pid_t, pid, int, cpu, int, group_fd, unsigned long, flags)
+```
+
+The user can read the counters or measurement by type and config (config depends
+on the type). It also supports a ring buffer, which is either per-CPU or
+per-task. The ring buffer is fast because it does not copy memory, but it uses
+the same physical memory for writing and reading.
