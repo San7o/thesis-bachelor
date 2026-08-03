@@ -20,6 +20,12 @@ TODO: Where eBPF comes from
 
 TODO: Big picture, diagrams. the bpf(7) man page would be useful material
 
+TODO: Show and eBPF program
+
+The program that loads an eBPF program is called a `loader`. `libbpf` is the
+official library that provides easier loading abstractions on top of the lower
+level `bpf` syscall.
+
 Instruction Set
 ---------------
 
@@ -205,6 +211,8 @@ some platforms.
 
 The standard also defines "platform variables" which are memory regions
 identified by integer ids exposed by the runtime.
+
+Clang 11+ and GCC 12.1+ support BPF bytecode.
 
 The verifier
 ------------
@@ -406,13 +414,162 @@ bpf_check
 
 The JIT is not particularly emotional.
 
+A note about loops, you can unroll the loop or use the helper functions. The
+modern verifier actually supports bounded loops.
+
 Program Types
 -------------
 
 Each eBPF program has a certain type. Types are enumerated in `enum
-bpf_prog_type` in `include/uapi/linux/bpf.h`.
+bpf_prog_type` in `include/uapi/linux/bpf.h`. After loading the program and the
+verifier accepts it, you need to attach it. The attach point depends on the type
+of program. After attaching it, you get a link.
 
+TODO: state machine picture? Maybe it is too much
 
+By convention, loaders based on libbpf specify the type of the program by
+putting the program in a specific ELF section of the binary, which depends upon
+the program type. For example, a program of type `BPF_PROG_TYPE_CGROUP_DEVICE`
+must be put in the `cgroup/dev` ELF section, and a program of type
+`BPF_PROG_TYPE_CGROUP_SKB` is put in the `cgroup/skb` ELF section. This is an
+hack so that you can specify multiple programs of different types in the same
+binary.
+
+The program execution depends on where it was attached, as well as which helpers
+functions it is allowed to use. There are more than 30 types of programs. We
+will see only a few examples.
+
+Programs can be attached to kprobes (`BPF_PROG_TYPE_KPROBE`), tracepoints
+(`BPF_PROG_TYPE_TRACEPOINT`) and perf events (`BPF_PROG_TYPE_PERF_EVENT`). With
+the information given to the tracing instrumentation, the eBPF program can
+execute ad-hoc logic to react to the event.
+
+Other program types:
+
+BPF_PROG_TYPE_KPROBE
+^^^^^^^^^^^^^^^^^^^^
+
+Done impl (kivebpf)
+
+BPF_PROG_TYPE_XDP
+^^^^^^^^^^^^^^^^^
+
+Done test
+
+Indeed, in for the intel i40e driver with napi:
+
+```
+i40e_intr (interrupt)
+  -> napi_schedule_irqoff
+    -> __napi_schedule_irqoff
+      -> ____napi_schedule
+        -> list_add_tail
+
+softirq context, called from napi:
+
+__napi_busy_loop
+  -> napi_poll
+    -> __napi_poll
+      -> struct napi_struct->poll
+
+That function is implemented in the driver
+
+i40e_napi_poll
+  -> i40e_clean_rx_irq
+    -> i40e_run_xdp
+      -> bpf_prog_run_xdp
+```
+
+BPF_PROG_TYPE_LSM
+^^^^^^^^^^^^^^^^^
+
+Done
+
+It uses the hooks defined in `include/linux/lsm_hook_defs.h`. The kernel
+registers a trampoline to a NOP stub in the security module.
+
+BPF_PROG_TYPE_STRUCT_OPS
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Done SCHED_EXT
+
+To register certain types of eBPF program, special trampolines are used, which
+are built on top of the dynamic ftrace infrastructure (knowing the address of
+the NOP area of a function) "to allow kernel code to call into BPF programs
+with practically zero overhead":
+
+https://github.com/torvalds/linux/commit/fec56f5890d93fc2ed74166c397dc186b1c25951
+
+```
+struct bpf_trampoline_ops {
+	int (*register_fentry)(struct bpf_trampoline *tr, struct bpf_tramp_image *im, void *data);
+	int (*unregister_fentry)(struct bpf_trampoline *tr, u32 orig_flags, void *data);
+	int (*modify_fentry)(struct bpf_trampoline *tr, u32 orig_flags, struct bpf_tramp_image *im,
+			     bool lock_direct_mutex, void *data);
+};
+```
+
+For example in `__bpf_arch_text_poke` (`arch/x85/net/bpf_jit_comp.c`) we see the
+actual patching:
+
+```
+	const u8 *nop_insn = x86_nops[5];
+	u8 new_insn[X86_PATCH_SIZE];
+	u8 *prog;
+	int ret;
+
+  // ...
+
+	memcpy(new_insn, nop_insn, X86_PATCH_SIZE);
+	if (new_t != BPF_MOD_NOP && new_addr) {
+		prog = new_insn;
+		ret = new_t == BPF_MOD_CALL ?
+		      emit_call(&prog, new_addr, ip) :
+		      emit_jump(&prog, new_addr, ip);
+		if (ret)
+			return ret;
+	}
+
+  // ...
+
+	if (memcmp(ip, new_insn, X86_PATCH_SIZE)) {
+		smp_text_poke_single(ip, new_insn, X86_PATCH_SIZE, NULL);
+		ret = 0;
+	}
+```
+
+When we link an ebpf program that needs a trampoline
+(`__bpf_trampoline_link_prog`) we call `bpf_trampoline_update` which creates a
+page in `arch_prepare_bpf_trampoline` where it sets up the stack environment for
+the eBPF program including its arguments, calls it, restores registers and
+returns to the target function.
+
+"The tracing use case in the datacenter demonstrated that certain key kernel
+functions have (like tcp_retransmit_skb) have 2 or more kprobes that are always
+active.  Other functions have both kprobe and kretprobe.  So it is essential to
+keep both kernel code and BPF programs executing at maximum speed. Hence
+generated BPF trampoline is re-generated every time new program is attached or
+detached to maintain maximum performance." (https://github.com/torvalds/linux/commit/fec56f5890d93fc2ed74166c397dc186b1c25951)
+
+The above is implemented in `__arch_prepare_bpf_trampoline -> invoke_bpf`.
+
+The program type that have a trampoline are:
+
+```
+	switch (ptype) {
+	case BPF_PROG_TYPE_TRACING:
+		if (eatype == BPF_TRACE_FENTRY || eatype == BPF_TRACE_FEXIT ||
+		    eatype == BPF_MODIFY_RETURN || eatype == BPF_TRACE_FSESSION ||
+		    eatype == BPF_TRACE_FENTRY_MULTI || eatype == BPF_TRACE_FEXIT_MULTI ||
+		    eatype == BPF_TRACE_FSESSION_MULTI)
+			return true;
+		return false;
+	case BPF_PROG_TYPE_LSM:
+		return eatype == BPF_LSM_MAC;
+	default:
+		return false;
+	}
+```
 
 Helper Functions
 ----------------
@@ -420,18 +577,9 @@ Helper Functions
 Helper functions can be used by the eBPF program and are considered User Space
 API (UAPI), meaning that the API will be honored on future kernel versions.
 
-TODO: read the source code on how the handshake between the eBPF program and the
-functions is implemented
-
-TODO: They are JIT compiled to normal calls (?), investigate
-
-TODO: helper vs kfuncs ???
-
-Kfuncs (should it be its own section???)
-
-VPF Kernel Functions (`kfuncs`) are exposed to BPF programs, but do not have a
+BPF Kernel Functions (`kfuncs`) are exposed to BPF programs, but do not have a
 stable interface. They are exposed either by making an existing function
-visible, or add a new wrapper for BPF.
+visible, or add a new wrapper for BPF. Defensive programming is advised.
 
 Functions are delcared with the `__bpf_kfunc` macro which simply expands to:
 
@@ -496,8 +644,6 @@ For each kfunc, we create an unique label in the `.BTF_ids` section, which is
 initially filled with zeros during compilationand resolved later during the
 linking phase by `resolve_btfids` tool.
 
-TODO: how does the verifier check those??
-
 We can also annotate a kfunc to give more information to the verifier:
 
 ```
@@ -523,17 +669,69 @@ etc. Explaintations in https://origin.kernel.org/doc/html/latest/bpf/kfuncs.html
 Maps
 ----
 
-There are many typers of maps, generic and non-generic.
+There are many typers of maps, generic and non-generic. They are used as
+key/value store to communicate between the eBPF program and userspace, but the
+same api is used to provide other data structures like stacks, queue,
+ringbufferes, arena etc.
 
-TODO: read code. Focus on architecture instead of the various types of maps.
+`include/linux/bpf.h`
 
-BTF
----
+```
+struct bpf_map_ops {
+	/* funcs callable from userspace (via syscall) */
+	int (*map_alloc_check)(union bpf_attr *attr);
+	struct bpf_map *(*map_alloc)(union bpf_attr *attr);
+	void (*map_release)(struct bpf_map *map, struct file *map_file);
+	void (*map_free)(struct bpf_map *map);
+	int (*map_get_next_key)(struct bpf_map *map, void *key, void *next_key);
+	void (*map_release_uref)(struct bpf_map *map);
+  // ...
+}
+```
 
-TODO
+The eBPF program interacts with maps via helper functions, while the userspace
+uses the BPF syscall to send commands.
 
-CO-RE
------
+For example:
+
+Map creation:
+
+```
+int
+bpf_create_map(enum bpf_map_type map_type,
+               unsigned int key_size,
+               unsigned int value_size,
+               unsigned int max_entries)
+{
+    union bpf_attr attr = {
+        .map_type    = map_type,
+        .key_size    = key_size,
+        .value_size  = value_size,
+        .max_entries = max_entries
+    };
+
+    return bpf(BPF_MAP_CREATE, &attr, sizeof(attr));
+}
+```
+
+Map operation (lookup):
+
+```
+int
+bpf_lookup_elem(int fd, const void *key, void *value)
+{
+    union bpf_attr attr = {
+        .map_fd = fd,
+        .key    = ptr_to_u64(key),
+        .value  = ptr_to_u64(value),
+    };
+
+    return bpf(BPF_MAP_LOOKUP_ELEM, &attr, sizeof(attr));
+}
+```
+
+BTF CO-RE
+---------
 
 TODO: Info here
 https://origin.kernel.org/doc/html/latest/bpf/llvm_reloc.html#co-re-relocations
@@ -543,6 +741,8 @@ are fetched from the current running kernel via BTF.
 
 Loading
 -------
+
+`kernel/bpf/syscall.c`:
 
 ```
 SYSCALL_DEFINE5(bpf, BPF_PROG_LOAD, ...)
@@ -564,11 +764,6 @@ err = bpf_check(&prog, attr, uattr, attr_log);
 ```
 
 `bpf_check` is implemented in `kernel/bpf/verifier.c`.
-
-Example
--------
-
-TODO: Show an example program + loader, with commentary
 
 Security Considerations
 -----------------------
@@ -611,8 +806,3 @@ Use Cases and modern ecosystem
 ------------------------------
 
 TODO
-
-Others
-------
-
-Trampolines: https://github.com/torvalds/linux/commit/fec56f5890d93fc2ed74166c397dc186b1c25951
