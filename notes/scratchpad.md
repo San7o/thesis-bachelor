@@ -111,8 +111,71 @@ Event sources: the producers of a signal
   - software events: context switch etc
   - hardware events: CPU Performance Monitor Counters (cpu cycle, cahce misses...)
 
-Static Function Tracing
------------------------
+Ftrace
+------
+
+Structure:
+
+- A bit of history
+- architecture
+- in-kernel api
+- user space api
+
+Good intro:
+\url{https://docs.redhat.com/en/documentation/red_hat_enterprise_linux_for_real_time/7/html/tuning_guide/appe-detailed_description_of_ftrace}
+
+There is a naming issue as ftrace was born as the function tracer, but has
+evolved into the main tracing infrastructure used by other types of tracers. We
+will now talk about the general unfrastructure.
+
+We write to buffer with \verb|trace_printk()|.  SEE:
+\verb|kernel/trace/trace_printk.c| modules \verb|trace_printk()|'s formats are
+autosaved in \verb|struct trace_bprintk_fmt| which are queued on
+\verb|trace_bprintk_fmt_list|.
+
+An important abstraction is the struct tracer (kernel/trace/trace.h) which
+represents a specific tracer and its callbacks to interact with tracefs. Then
+you do \verb|tracer_init| and other \verb|tracer_*| functions.
+
+trace.h:1450
+
+   \verb|extern struct tracer nop_trace;|
+
+From: \url{https://www.kernel.org/doc/html/latest/trace/events.html} Trace
+events can be made to conditionally invoke trigger ‘commands’ which can take
+various forms and are described in detail below; examples would be enabling or
+disabling other trace events or invoking a stack trace whenever the trace event
+is hit. Whenever a trace event with attached triggers is invoked, the set of
+trigger commands associated with that event is invoked.
+
+\begin{verbatim}
+
+trace.h:1997
+   struct event_command {
+
+\end{verbatim}
+
+Not that you also have event filtering.
+
+The trace array contains per-CPU trace arrays. This is the highest level data
+structure that indivisual tracers deal with.
+
+Interesting: lockless ringbuffer design TODO:
+\url{https://www.kernel.org/doc/html/latest/trace/ring-buffer-design.html} The
+ring buffer is divided in pages. Each CPU has its own list of pages where it can
+write, and the reader may read from any per-cpu buffer. For this reason for each
+per-cpu buffer, the reader has its own page separate from the rest. When the
+reader has done reading it, it swaps it with another page. If the writer wraps,
+it needs to push the head forward. Here we need to use cmpxchg since we need to
+make sure that the writer and the reader are not changing the head at the same
+time.  SEE: \verb|kernel/trace/ring_buffer.c|
+
+There are several tracers here, the most famous one is the function
+tracer.
+
+
+Static Function Tracing aka ftrace pt1
+--------------------------------------
 
 `CONFIG_FUNCTION_TRACER`
 
@@ -238,8 +301,8 @@ references into a single table.
 
 Ftrace uses thse to access the mcount functions.
 
-Dynamic Ftrace
---------------
+Dynamic Ftrace aka ftrace pt2
+-----------------------------
 
 `DYNAMIC_FTRACE` option.
 
@@ -392,6 +455,15 @@ to.
 
 Tracepoints
 -----------
+
+Aka. static event tracing.
+
+There are more than 1000 traceoints available (\verb|grep -R TRACE_EVENT include/trace/events|)
+
+USEFUL: \url{https://mmi.hatenablog.com/entry/2018/03/04/052249}
+
+Put an entire implementation of a simple module that registers a
+tracepoint at the appendix.
 
 `inclide/linux/tracepoint-defs.h:26`:
 
@@ -869,6 +941,12 @@ TRACE_EVENT_SYSCALL(sys_enter,
 Kprobes
 -------
 
+Main source of information:
+\url{https://www.kernel.org/doc/html/latest/trace/kprobes.html}
+COOL: \url{https://lwn.net/Articles/132196/}
+
+There are kprobes and kretprobes.
+
 From https://www.kernel.org/doc/html/latest/trace/kprobes.html:
 
 ```
@@ -890,6 +968,44 @@ After the instruction is single-stepped, Kprobes executes the “post_handler,�
 any, that is associated with the kprobe. Execution then continues with the
 instruction following the probepoint.
 ```
+
+Picture: show this graphically. Take inspiration to the lwn article.
+
+Kretprobes do the same but by playing with the return address, which
+is places pushed onto the stack by the caller.
+
+Note that kprobes can do everything, which is very dangerous.
+
+Kprobes may perform jump optimization if the architecture supports
+it and the kernel was built with \verb|CONFIG_OPTPROBES=y|. In this case,
+instead of a breakpoint instruction, the CPU performs a jump instead.
+
+Note that kprobes do not work well with inlining.
+
+Interface
++++++++++
+
+API is in include/linux/kprobes.h
+
+\begin{verbatim}
+
+    struct kprobe { ... }
+    typedef int (*kprobe_pre_handler_t) (struct kprobe *, struct pt_regs *);
+    typedef void (*kprobe_post_handler_t) (struct kprobe *, struct pt_regs *,
+		    		       unsigned long flags);
+
+\end{verbatim}
+
+Kprobes have probe handlers, a kprobe manager and architecture
+dependent layers for messing with instruction and exceptions.
+
+You call register / undegister kprobe / kretprobe. You can enable and
+disable them.
+
+You can use a symbol instead of an address, the kernel will resolve
+the address from the symbol using System.map symbol table.
+
+The list of registered kprobes is visible under DEBUGFS/kprobes/list
 
 From `include/linux/kprobes.c` we see a global kprobe_table list:
 
@@ -984,6 +1100,35 @@ MODULE_DESCRIPTION("kprobe example");
 MODULE_LICENSE("GPL v2");
 ```
 
+Implementation
+++++++++++++++
+
+kernel/kprobes.c implements the mangaer, which stores an hashmap of
+kprobes indexed by their address at which the probe is placed, and
+blacklisted entries. Insertion and deletion to this table is guarded
+by a mutex to prevent these operations from executing simultaneously.
+
+Example implementation usage \verb|kprobe_table|:
+
+kernel/kprobes.c:378
+
+\begin{verbatim}
+
+struct kprobe *get_kprobe(void *addr)
+{
+	struct hlist_head *head;
+	struct kprobe *p;
+
+	head = &kprobe_table[hash_ptr(addr, KPROBE_HASH_BITS)];
+	hlist_for_each_entry_rcu(p, head, hlist,
+				 lockdep_is_held(&kprobe_mutex)) {
+		if (p->addr == addr)
+			return p;
+	}
+
+	return NULL;
+}
+
 If `p->flags & KPROBE_FLAG_FTRACE`, the kprobe is registered via the `ftrace`
 instrumentation.
 
@@ -998,6 +1143,10 @@ actually modifies the instruction in memory and sets up a breakpoint call
 (`int3` on x86). It sets up emulation, which tries to emulate the probed
 instruction instead of calling an additional trap after single stepping, to
 improve performance. At the end it tries to optimize it.
+
+```
+Whenever a probe is hit, the probe handler is called with interrupts disabled. Interrupts are disabled because handling a probe is a multiple step process which involves breakpoint handling and single-step execution of the probed instruction. There is no easy way to save the state between these operations hence interrupts are kept disabled during probe handling.
+```
 
 `int3` handler is defined in `arch/x86/kernel/trace.c` which calls `do_int3`:
 
@@ -1053,9 +1202,67 @@ it tries to optimize the break instruction with a jump. This does not work if
 the kprobe was based on ftrace. The optimizer logic is quite complex and will
 not be covered here.
 
+
+
 Perf
 ----
 
+API
++++
+
+Structure:
+
+- A bit of history
+- architecture
+- in-kernel api
+- user space api
+
+Perf: event state machine
+
+You interact with perf via the \verb|perf_event_open| syscall.
+Used for performance counting. Has its own ring buffer.
+
+They are simple as they only signal that an event is happened. This
+is then processed by another program like perf.
+
+Security implications:
+\url{https://www.kernel.org/doc/html/latest/admin-guide/perf-security.html}
+
+\begin{verbatim}
+
+perf_event_open(2)
+
+       A call to perf_event_open() creates a file descriptor that  allows  mea‐
+       suring performance information.  Each file descriptor corresponds to one
+       event  that is measured; these can be grouped together to measure multi‐
+       ple events simultaneously.
+
+       Events can be enabled and disabled in two ways:  via  ioctl(2)  and  via
+       prctl(2).  When an event is disabled it does not count or generate over‐
+       flows but does continue to exist and maintain its count value.
+
+       Events  come  in two flavors: counting and sampled.  A counting event is
+       one that is used for counting the aggregate number of events that occur.
+       In general, counting event results are gathered with a read(2) call.   A
+       sampling  event  periodically  writes  measurements to a buffer that can
+       then be accessed via mmap(2).
+
+\end{verbatim}
+
+Another resource:
+  \url{https://github.com/torvalds/linux/blob/master/tools/perf/design.txt}
+
+perf_event
+----------
+
+Perf events are easy, they just
+notify that an even has appened. There are hardware events and
+software events.
+
+There is this abstraction of a performance mesuring unit. This is an
+generic object that can manages a set of performance events and
+counters. It handles registration, stopping and reading of events.
+Code is in \verb|linux/include/perf_event.h|; struc pmu: 329.
 Example: https://github.com/San7o/linux-perf-event-example/
 
 Code in `inclide/linux/perf_event.h`, `kernel/events/core.c`
@@ -1127,3 +1334,16 @@ The user can read the counters or measurement by type and config (config depends
 on the type). It also supports a ring buffer, which is either per-CPU or
 per-task. The ring buffer is fast because it does not copy memory, but it uses
 the same physical memory for writing and reading.
+
+USDT
+----
+
+TODO
+
+(USDT)
+Note: this is actually a uprobe in disguise, it expects to attach to
+tracepoints defined in userspace programs.
+
+TODO: write some code to understand this
+
+
