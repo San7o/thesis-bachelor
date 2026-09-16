@@ -106,23 +106,23 @@ therefore, writers never interact with the reader page and readers swap the
 reader page via atomic operations so no lock is used on the same CPU ring
 buffer.
 
-Because string formatting is expensive, the event is saved in the ring buffer in
-binary form without any formatting for the end-user. When an end-user reads the
-ring buffer though the user-space API, the relevant contents of the ring buffer
-are copied to a temporary buffer (\verb|struct trace_seq|) where they are
+Because string formatting is expensive, the event is stored in the ring buffer
+in binary form without any formatting for the end-user. When an end-user reads
+the ring buffer though the user-space API, the relevant contents of the ring
+buffer are copied to a temporary buffer (\verb|struct trace_seq|) where they are
 formatted with a printf-style function, \verb|trace_seq_vprintf|, and copied to
 the user's memory. Moving the formatting procedure to the reader improves the
 writer's latency which is critical for high frequency events.
 
 \subsubsection*{The tracer struct}
 
-An important abstraction in ftrace is the \textit{Tracer} represented in the
+An important abstraction in ftrace is the \textit{Tracer} represented as the
 \verb|struct tracer|. This is meant to provide a way for the end-user to enable
 or disable a set of trace events with specific formatting. Any tracer implements
 a set of functions to be invoked during its lifetime, such as initialization,
 starting, stopping, reading, etc. An use case, for example, would be to trace
 all the functions executed, or to trace all context switches. The user interacts
-with the tracer, such as by changing its execution state or output options, via
+with the tracer, such as to change its execution state or output options, via
 the \textit{tracefs} filesystem API. Many tracers are available, but only one
 tracer can be enabled at a time.
 
@@ -215,9 +215,59 @@ the stack as of C calling conventions. This is referred to as "static function
 tracing" because the compiler instruments each function permanently at compile
 time.
 
-Therefore, the generated assembly of a function would look like this:
+For example, the following \verb|sum| function would be compiled by gcc version
+16.1 into x86-64 assembly with \verb|-O0| flag as shown below. On the left the
+code in C, on the right its compiled code in assembly.
 
+\noindent
+\vspace{0.5em}
 
+\begin{minipage}[t]{0.47\textwidth}
+\begin{verbatim}
+int sum(int a, int b) {
+    return a + b;
+}
+\end{verbatim}
+\end{minipage}%
+\hfill
+\vrule % This creates the vertical dividing bar
+\hfill
+\begin{minipage}[t]{0.47\textwidth}
+\begin{verbatim}
+"sum(int, int)":
+        lea     eax, [rdi+rsi]
+        ret
+\end{verbatim}
+\end{minipage}
+
+\noindent
+\vspace{0.5em}
+
+While the same compiler would compile that same function as follows with the
+\verb|-pg| flag:
+
+\vspace{0.5em}
+
+\begin{minipage}[t]{0.47\textwidth}
+\begin{verbatim}
+int sum(int a, int b) {
+    return a + b;
+}
+\end{verbatim}
+\end{minipage}%
+\hfill
+\vrule % This creates the vertical dividing bar
+\hfill
+\begin{minipage}[t]{0.47\textwidth}
+\begin{verbatim}
+"sum(int, int)":
+        call    __fentry__
+        lea     eax, [rdi+rsi]
+        ret
+\end{verbatim}
+\end{minipage}
+
+\vspace{0.5em}
 
 \subsubsection*{Dynamic function tracing}
 
