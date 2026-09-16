@@ -128,10 +128,10 @@ There is a naming issue as ftrace was born as the function tracer, but has
 evolved into the main tracing infrastructure used by other types of tracers. We
 will now talk about the general unfrastructure.
 
-We write to buffer with \verb|trace_printk()|.  SEE:
-\verb|kernel/trace/trace_printk.c| modules \verb|trace_printk()|'s formats are
-autosaved in \verb|struct trace_bprintk_fmt| which are queued on
-\verb|trace_bprintk_fmt_list|.
+We write to buffer with \verb|trace_printk()|, which is a formatter what writes
+to the buffer.  SEE: \verb|kernel/trace/trace_printk.c| modules
+\verb|trace_printk()|'s formats are autosaved in \verb|struct trace_bprintk_fmt|
+which are queued on \verb|trace_bprintk_fmt_list|.
 
 An important abstraction is the struct tracer (kernel/trace/trace.h) which
 represents a specific tracer and its callbacks to interact with tracefs. Then
@@ -160,7 +160,7 @@ Not that you also have event filtering.
 The trace array contains per-CPU trace arrays. This is the highest level data
 structure that indivisual tracers deal with.
 
-Interesting: lockless ringbuffer design TODO:
+Interesting: lockless ringbuffer design:
 \url{https://www.kernel.org/doc/html/latest/trace/ring-buffer-design.html} The
 ring buffer is divided in pages. Each CPU has its own list of pages where it can
 write, and the reader may read from any per-cpu buffer. For this reason for each
@@ -179,9 +179,14 @@ Static Function Tracing aka ftrace pt1
 
 `CONFIG_FUNCTION_TRACER`
 
-All thanks to `gcc -pg` + (`-mfentry` whe CONFIG_HAVE_FENTRY). With
-`-mnop-mcount` we use several `NOP` instructions instead
-(CONFIG_HAVE_NOP_MCOUNT). It generates Mcount (ARM and others) or fentry (x86).
+All thanks to `gcc -pg`. It generates Mcount (ARM and others) or fentry (x86).
+
+x86 legacy: alternatively, on x86_64 you can use `-mfentry` when
+CONFIG_HAVE_FENTRY. With `-mnop-mcount` we use several `NOP` instructions
+instead (CONFIG_HAVE_NOP_MCOUNT). Compiler explorer with `-pg` shows a call to
+`_mcount` after the prologue in arm64, or `__fentry__` on x86-64 before the
+prologue. Although clang generates a call to `mcount` for x86-64 after the
+prologue, and a call to `_mcount` in armv8 (consistent with gcc).
 
 On `arm64` we have `arch/arm64/kernel/entrty-ftrace.S:183`:
 
@@ -306,10 +311,17 @@ Dynamic Ftrace aka ftrace pt2
 
 `DYNAMIC_FTRACE` option.
 
-With dynamic tracing enabled, the kernel patches calls to mcount with a NOP (or
-uses `-mnio-mcount`) if tracing is disabled, and patches it to `ftrace_caller`
-or `ftrace_regs_caller` if it is enabled. This allows for 0 overhead tracing in
-case it is disabled.
+very good explaination in `linux/Documentation/trace/ftrace.rst`.
+
+With dynamic tracing enabled, at boot-time the kernel patches calls to mcount
+with a NOP (or uses `-mnio-mcount`) if tracing is disabled, and patches it to
+`ftrace_caller` or `ftrace_regs_caller` if it is enabled. This allows for 0
+overhead tracing in case it is disabled.
+
+The information of all the locations of all mcount calls is generated at compile
+time via the `recordmcount` program which is called by the build infrastructure.
+The tool saves all the locations in the `__mcount_loc` ELF section, which is
+linked in the original object file.
 
 Show an example, like
 https://github.com/isovalent/ebpf-docs/blob/master/docs/linux/concepts/trampolines.md:
@@ -361,7 +373,7 @@ Meaning:
   based on the current tracer.
 - static tracing: we use `__fentry__` on x86, or `mcount` on the others
 
-We see `ftrace_called` in arm64 `arch/arm64/kernel/entry-ftrace.S:267`:
+We see `ftrace_caller` in arm64 `arch/arm64/kernel/entry-ftrace.S:267`:
 
 ```
 /*
@@ -452,6 +464,10 @@ create_trampoline(struct ftrace_ops *ops, unsigned int *tramp_size)
 Trampolines are just locations in memory containing addresses of logic to jump
 to.
 
+Ftrace provides the function `register_ftrace_function` to register this
+trampoline, which is used by the various tracers. If dynamic tracing is enabled,
+this literally loops over all the functions, patching them via the `text_poke`
+function.
 
 Tracepoints
 -----------
@@ -515,7 +531,14 @@ DECLARE_TRACE(sched_entry,
 #include <trace/define_trace.h>
 ```
 
-What happens in the macro expansion is that:
+What happens in the macro expansion is that it creates a tracepoint:
+
+```
+#define DECLARE_TRACE(name, proto, args)	\
+	DEFINE_TRACE(name##_tp, PARAMS(proto), PARAMS(args))
+```
+
+Then again it defines a bunch of functions for ftrace:
 
 `include/linux/tracepoint.h:523`:
 
@@ -651,9 +674,9 @@ extern tracepoint_ptr_t __stop___tracepoints_ptrs[];
 What happen is that:
 
 ```
-trace_sched_entry_tp
-  __do_trace_entry_tp
-      static_call(tp_func_entry_tp)
+trace_sched_##name
+  __do_trace_##name
+      static_call(tp_func_##name)
 ```
 
 Static calls are introduced in https://lkml.iu.edu/2008.2/03685.html:
@@ -677,8 +700,12 @@ funcs in the array and calls each of the callbacks like the old method
 using indirect calling.
 ```
 
-The `tp_func_entry_tp` is defined by some other system that consumes the event.
-This can be set to null, disabling the call, so we get very little overhead.
+The `tp_func_##name` is usually setup when registering the tracepoint
+(`register_trace_##name` -> `tracepoint_probe_register` -> `tracepoint_add_func`
+-> `tracepoint_update_call`). This can be disabled likewise. Note that when
+registering a tracepoint we need to provide the function that will be statically
+called. We will see with event tracing that this function is generated by the
+infrastructure to interface with ftrace.
 
 We could also do this:
 
@@ -722,6 +749,8 @@ TRACE_EVENT(fuse_request_end,
 );
 ```
 
+Great exaplaination of the requirements here: https://lwn.net/Articles/379903/
+
 What happens is that there are actually 7 stages of this macro expansion
 `include/trace/trace_events.h:38`:
 
@@ -741,6 +770,14 @@ The macro and its prameters are undefined and redefined 7 times, and the
 tracepoint definition is reimported after each stage, to produce
 different output. Each time, the source header is included again with different
 expansion rules.
+
+Also:
+
+```
+#undef TRACE_EVENT
+#define TRACE_EVENT(name, proto, args, tstruct, assign, print)	\
+	DEFINE_TRACE(name, PARAMS(proto), PARAMS(args))
+```
 
 More specifically, in stage 1 `inclide/trace/trace_evnets.h:39` the macro
 generates something of the form:
@@ -835,6 +872,28 @@ __section("_ftrace_events") *__event_<call> = &event_<call>;
 Since `TRACE_EVENT` generates a lot of boilerplate code and increases the size
 of the kernel binary, we can use `DECLARE_EVENT_CLASS` and `DEFINE_EVENT` to
 share some code. See https://lwn.net/Articles/381064/
+
+At the end of the day, the infrastucture creates a tracepoint. When it triggers,
+it commits raw bytes to the ring buffer via `trace_event_raw_event_##call`.
+The set of apis to interact with the ring buffer is located in
+`include/linux/trace_events.h` which use `include/linux/ring_buffer.h` api and
+`kernel/trace/ring_buffer.c` implementation.
+Briefly:
+
+- `trace_event_buffer_lock_reserve()`: Allocates space in the per-CPU ring
+  buffer for the event structure defined by TP_STRUCT__entry.
+- `ring_buffer_event_data()`: Returns a raw pointer to the payload data area
+  inside the newly reserved ring buffer slot, allowing the TP_fast_assign block
+  to copy values directly.
+- `trace_event_buffer_commit()`: Finalizes the entry and makes it available to
+  user-space trace readers.
+
+Much more about the ring buffer: https://kernel-internals.org/tracing/ring-buffer/
+
+When the user reads it, he calls `trace_raw_output_##call` ->
+`trace_event_printf` -> `trace_seq_vprintf`. So it formats the string to a
+`struct seq_buf` which is contained in a `struct trace_seq ` which is contained
+in an `struct trace_iterator` which is passed to `trace_output_call`.
 
 Syscall tracing
 ---------------

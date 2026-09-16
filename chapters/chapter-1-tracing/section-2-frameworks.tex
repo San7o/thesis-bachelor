@@ -1,8 +1,225 @@
 \section{Tracing Frameworks}
 
-TODO
+Tracing frameworks provide the internal infrastructure required to interface
+event sources and front ends. The Linux kernel provides multiple frameworks
+tailored to different use cases. A framework should support the registration of
+event sources, which can be categorized as either static or dynamic, to capture
+their side effects when such events are triggered. User-space interacts with a
+tracing frameworks through a well-defined stable user-space API, such as through
+a filesystem or a dedicated system call. A front-end provides a more convenient
+API to the user for managing event registration, de-registration and consuming
+its output.
 
 \subsection{Ftrace}
+
+\textit{Ftrace} was originally implemented in the Linux kernel to support
+function tracing, that is, capturing information such as arguments and function
+name whenever a kernel function is entered or exited in real time. Overtime the
+same infrastructure was reused for other use cases, therefore the name "ftrace"
+does not retain any of its original meaning. For this reason, we will use the
+term "function tracer" to refer to the specific tracer used for functions, and
+"ftrace" for the wider infrastructure.
+
+\subsubsection*{Global Ring Buffer}
+
+A core component of ftrace is its \textit{global ring buffer}, represented on
+its highest abstraction level by the \verb|struct trace_array|, which provides
+an interface to write an event's data and consume it. It supports both a
+producer-consumer mode and an overwrite mode. The two modes are distinguished by
+how writers behaves when the buffer is full: in such case, if the buffer is in
+prodicer-consimer mode, then the producer fails to write, otherwise in overwrite
+mode it overwrite the data.
+
+The design of the ring buffer had to met specific requirements because trace
+events are expected to be originated from any context, unless specifically
+disabled such on the tracing infrastructure itself to avoid recursion, and at
+high frequency.
+
+Core requirements are, but not limited to, the following:
+
+\begin{itemize}
+
+  \item writers should be able to write from interruptable contexts with success
+    when interrupted
+
+  \item writers and readers can be many in
+multiple CPU cores
+
+  \item the synchronization overhead must be close to zero due to
+the potential high amount of writes.
+
+\end{itemize}
+
+The solution implemented in Linux in the file
+\verb|linux/kernel/trace/ring_buffer.c| honors all these requirements using a
+lockless design, for both reader-to-writer and writer-to-writer interactions.
+
+Some key design decisions are now briefly discussed.
+
+Each CPU uses its own per-CPU ringbuffer containing a doubly-linked list of
+pages; therefore writers on different CPUs do not need to synchronize among each
+other. In order to read a full trace in chronological order, a reader iterates
+over all the buffers using timestamp information to determine the order of
+events.
+
+To support preemption, writers use a \textit{reserve and commit} pattern where
+the writer first reserves allocation space in a per-CPU ring buffer, then it
+writes with exclusive access to that region, and finally commits the region. The
+commit will be in a pending state until all regions before it are also
+committed; therefore when a writer reserves a region but gets preempted by
+another writer, then the new writer will not have access to the reserved region
+and its changes will not get registered until the original writer completes.
+This mechanism ensures that a reader will advance only if all preempted writes
+are committed.
+
+In C code, the commit pattern looks like the following function from
+\verb|linux/kernel/trace/trace_uprobe.c|, commented and simplified for
+readability:
+
+\begin{verbatim}
+static void __uprobe_trace_func(struct trace_uprobe *tu,
+				unsigned long func, struct pt_regs *regs,
+				struct uprobe_cpu_buffer *ucb,
+				struct trace_event_file *trace_file)
+{
+  struct trace_event_buffer fbuffer;
+  void *data;
+  int size = ...;
+
+  /* First, reserve an area */
+  entry = trace_event_buffer_reserve(&fbuffer, trace_file, size);
+  if (!entry)
+    return;
+
+  data = /* get the data pointer from and entry */
+
+  /* Second, copy the data into the ring buffer page */
+  memcpy(data, ucb->buf, ucb->dsize);
+
+  /* Third, commit */
+  trace_event_buffer_commit(&fbuffer);
+}
+\end{verbatim}
+
+Another key detail is to have the reader page fully extern from the ring buffer;
+therefore, writers never interact with the reader page and readers swap the
+reader page via atomic operations so no lock is used on the same CPU ring
+buffer.
+
+Because string formatting is expensive, the event is saved in the ring buffer in
+binary form without any formatting for the end-user. When an end-user reads the
+ring buffer though the user-space API, the relevant contents of the ring buffer
+are copied to a temporary buffer (\verb|struct trace_seq|) where they are
+formatted with a printf-style function, \verb|trace_seq_vprintf|, and copied to
+the user's memory. Moving the formatting procedure to the reader improves the
+writer's latency which is critical for high frequency events.
+
+\subsubsection*{The tracer struct}
+
+An important abstraction in ftrace is the \textit{Tracer} represented in the
+\verb|struct tracer|. This is meant to provide a way for the end-user to enable
+or disable a set of trace events with specific formatting. Any tracer implements
+a set of functions to be invoked during its lifetime, such as initialization,
+starting, stopping, reading, etc. An use case, for example, would be to trace
+all the functions executed, or to trace all context switches. The user interacts
+with the tracer, such as by changing its execution state or output options, via
+the \textit{tracefs} filesystem API. Many tracers are available, but only one
+tracer can be enabled at a time.
+
+The default tracer is the \textit{nop} tracer which is a "dummy" tracer that does
+not enable any event. The struct instantiation would look like this:
+
+\begin{verbatim}
+/* Supported output options */
+enum {
+	TRACE_NOP_OPT_ACCEPT = 0x1,
+	TRACE_NOP_OPT_REFUSE = 0x2
+};
+
+/* Options for the tracer */
+static struct tracer_opt nop_opts[] = {
+	{ TRACER_OPT(test_nop_accept, TRACE_NOP_OPT_ACCEPT) },
+	{ TRACER_OPT(test_nop_refuse, TRACE_NOP_OPT_REFUSE) },
+	{ } /* Always set a last empty entry */
+};
+
+static struct tracer_flags nop_flags = {
+	.val = 0, /* By default: all flags disabled */
+	.opts = nop_opts
+};
+
+struct tracer nop_trace __read_mostly =
+{
+	.name		= "nop",
+	.init		= nop_trace_init,  /* dummy functions, do not do anything */
+	.reset		= nop_trace_reset,
+	.flags		= &nop_flags,
+	.set_flag	= nop_set_flag,
+	.allow_instances = true,
+};
+\end{verbatim}
+
+Where the \verb|init| and \verb|reset| members are functions, which in this case
+do nothing. The tracer is registered in the ftrace infrastructure via
+the \verb|register_tracer| function which is called during kernel startup.
+
+Some other available tracers are:
+
+\begin{itemize}
+
+\item \textit{function}: trace all kernel functions when entered.
+
+\item \textit{function\_graph}: trace both function entry and exit. It can be
+used to draw a graph of function calls.
+
+\item \textit{blk}: block tracer, for detailed IO tracing.
+
+\item \textit{hwlat}: hardware latency tracer.
+
+\item \textit{irqsoff}: trace the areas that disable interrupts and saves the
+trace with the longest maximum latency.
+
+\item \textit{preemptoff}: similar to \textit{irqsoff} but traces and records
+the amount of time for which preemption is disabled.
+
+\item \textit{wakeup}: traces and records the maximum latency that it takes for
+the highest priority task to get scheduled after it has been woken up.
+
+\end{itemize}
+
+\subsubsection*{Static function tracing}
+
+To support tracing functions enter and exit events, ftrace implement a
+system to instrument any function in order to alter the execution and log the
+event. For clarity, in the following section we will refer as \textit{trace}
+function or \textit{tracing} function to the function that performs the writing
+of the event onto the ftrace ringbuffer, and as the \textit{traced} function to
+the function that is being instrumented.
+
+Whenever a C function is executed, meaning that the program counter reaches the
+first instruction belonging the function, the execution should jump to a tracing
+function and returns to the traced function without altering the registers.
+Likewise, when the program counter reaches the end of the function and returns,
+it should jump to a tracing function and later return to the original return
+address. This behaviour should be supported transparently, without altering
+existing code or to expect developers to put instrumentation jumps onto any
+function.
+
+This is implemented by the \textit{gcc} compiler via the \verb|-pg| command line
+flags. When these flags are enabled, the compiler will generate a jump to a
+trace function called \verb|mcount| after the prologue of any function on ARM,
+or a jump to \verb|__fentry__| before the prologue on the x86-64 architecture.
+For function exits, the trace function will change the return address of the
+traced function with the address of another trace function, which is saved on
+the stack as of C calling conventions. This is referred to as "static function
+tracing" because the compiler instruments each function permanently at compile
+time.
+
+Therefore, the generated assembly of a function would look like this:
+
+
+
+\subsubsection*{Dynamic function tracing}
 
 TODO
 
@@ -10,13 +227,10 @@ TODO
 
 TODO
 
-\subsection{audit}
-
-TODO
 
 \subsection{Others}
 
-There are some vendor specific systems.
+There are some vendor specific systems and audit.
 
 There are some out of tree systems:
 
