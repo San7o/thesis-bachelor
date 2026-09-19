@@ -1278,14 +1278,99 @@ Structure:
 
 Perf: event state machine
 
+Great overview in my github project: https://github.com/San7o/linux-perf-event-example/tree/main
+
 You interact with perf via the \verb|perf_event_open| syscall.
 Used for performance counting. Has its own ring buffer.
 
 They are simple as they only signal that an event is happened. This
 is then processed by another program like perf.
 
+```
+
+       int syscall(SYS_perf_event_open, struct perf_event_attr *attr,
+                   pid_t pid, int cpu, int group_fd, unsigned long flags);
+```
+
+The man page contains all the information for the user. From the man page:
+
+```
+  Events come in two flavors: counting and sampled.  A counting
+       event is one that is used for counting the aggregate number of
+       events that occur.  In general, counting event results are
+       gathered with a read(2) call.  A sampling event periodically
+       writes measurements to a buffer that can then be accessed via
+       mmap(2).
+```
+
+mmap is used to read events that have more information than a counter. This uses
+the ringbuffer. Using mmap removes the need of repeted `read` syscalls which
+cause traps. The mmapped area can be accessed via `struct perf_event_mmap_page`
+which contains pointer to head (producer, updated by the kernel) and tail
+(consumer, updated by the user program) of the ring buffer.
+
+This is explained with better words in the documentation:
+
+```
+The control structure is named as perf_event_mmap_page, it contains a head
+pointer data_head and a tail pointer data_tail. When the kernel starts to fill
+records into the ring buffer, it updates the head pointer to reserve the memory
+so later it can safely store events into the buffer. On the other side, when the
+user page is a writable mapping, the perf tool has the permission to update the
+tail pointer after consuming data from the ring buffer.
+```
+
+There is also a concept of event groups, also from the man page.
+
+```
+  The group_fd argument allows event groups to be created.  An event
+       group has one event which is the group leader.  The leader is
+       created first, with group_fd = -1.  The rest of the group members
+       are created with subsequent perf_event_open() calls with group_fd
+       being set to the file descriptor of the group leader.  (A single
+       event on its own is created with group_fd = -1 and is considered
+       to be a group with only 1 member.)  An event group is scheduled
+       onto the CPU as a unit: it will be put onto the CPU only if all of
+       the events in the group can be put onto the CPU.  This means that
+       the values of the member events can be meaningfully compared
+       —added, divided (to get ratios), and so on— with each other, since
+       they have counted events for the same set of executed
+       instructions.
+```
+
+When read, different types or events will have different binary formats.
+
+The user specifies which event to read using the `struct perf_event_attr`
+structure. He can select variables such as the frequency of sampling or whether
+to exclude counting on certain contexts such as user or kernel. The full content
+of the structure is described in the man page.
+
+The pid and cpu arguments allow specifying which process and CPU to monitor, for
+example by supporting a per-thread mode or per-cpu global mode.
+
+Similarly to ftrace, the perf ringbuffer uses a reserve and commit pattern with
+`perf_output_begin()` and `perf_output_end()`.
+
+For hardware events, perf uses an architecture specific auxiliary ring buffer
+"AUX ring buffer" lower latency high frequency events.
+
+In default mode, allocates individual ring buffer for each CPU, but it only
+enables events for the profiled program rather than for all threads in the
+system.
+
+The syscall will perform a selinux security check at the start.
+
 Security implications:
 \url{https://www.kernel.org/doc/html/latest/admin-guide/perf-security.html}
+
+In summary, there are security issues because performance acouters may leak
+hardware or software information which an attacker could use maliciously.
+Therefore, the perf subsystem implementes security checks: root can do anything,
+and the others have security checks via capabilities (CAP_PERFMON).
+Additionally, the subsystem register the \verb|perf_event_paranoid| parameter,
+available in \textit{ /proc/sys/kernel / perf\_event\_paranoid}, which can be
+set to provide stricter or looser access checks, as described in the systemcall
+manual page.
 
 \begin{verbatim}
 

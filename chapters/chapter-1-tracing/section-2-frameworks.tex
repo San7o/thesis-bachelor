@@ -12,6 +12,13 @@ its output.
 
 \subsection{Ftrace}
 
+Ftrace is used to support the registration, deregistration, reading, writing and
+other operations on various types of trace events. It provides a \textit{Tracer}
+abstraction to manage a set of events together, and a data structure to store
+and interact with all the traced data. It also provides other infrastructure for
+specific tracers, such as hooks to any kernel function and code patching
+routines.
+
 \textit{Ftrace} was originally implemented in the Linux kernel to support
 function tracing, that is, capturing information such as arguments and function
 name whenever a kernel function is entered or exited in real time. Overtime the
@@ -40,13 +47,12 @@ Core requirements are, but not limited to, the following:
 \begin{itemize}
 
   \item writers should be able to write from interruptable contexts with success
-    when interrupted
+    when interrupted.
 
-  \item writers and readers can be many in
-multiple CPU cores
+  \item many writers and readers are expected, in multiple CPU cores.
 
   \item the synchronization overhead must be close to zero due to
-the potential high amount of writes.
+the potential high amount of concurrent writes from high frequency events.
 
 \end{itemize}
 
@@ -114,6 +120,13 @@ formatted with a printf-style function, \verb|trace_seq_vprintf|, and copied to
 the user's memory. Moving the formatting procedure to the reader improves the
 writer's latency which is critical for high frequency events.
 
+The user can read the formatted content of all ring buffers by reading the file
+\textit{\$TRACEFS\_ROOT / trace} without consuming the buffer, or
+\textit{\$TRACEFS\_ROOT / trace\_pipe} to consume it. Additionally, he can get
+information about the buffer state from several files beginning with
+\verb|buffer_*|. To access a particular per-CPU buffer, he can use the files
+from the directory \textit{\$TRACEFS\_ROOT / per\_cpu / \$CPU\_NUMBER /}.
+
 \subsubsection*{The tracer struct}
 
 An important abstraction in ftrace is the \textit{Tracer} represented as the
@@ -163,7 +176,7 @@ Where the \verb|init| and \verb|reset| members are functions, which in this case
 do nothing. The tracer is registered in the ftrace infrastructure via
 the \verb|register_tracer| function which is called during kernel startup.
 
-Some other available tracers are:
+The following is a non exhaustive list of available tracers:
 
 \begin{itemize}
 
@@ -187,9 +200,14 @@ the highest priority task to get scheduled after it has been woken up.
 
 \end{itemize}
 
+The user can query a list of the tracers supported by its running kernel by
+reading the file \textit{\$TRACEFS\_ROOT / available\_tracers}. He can select a
+tracer by writing its name to the file \textit{\$TRAEFS\_ROOT / current\_tracer}
+and tune its options from \textit{\$TRACEFS\_ROOT / options / \$OPTION\_NAME}.
+
 \subsubsection*{Static function tracing}
 
-To support tracing functions enter and exit events, ftrace implement a
+To support tracing functions enter and exit events, ftrace implements a
 system to instrument any function in order to alter the execution and log the
 event. For clarity, in the following section we will refer as \textit{trace}
 function or \textit{tracing} function to the function that performs the writing
@@ -269,9 +287,78 @@ int sum(int a, int b) {
 
 \vspace{0.5em}
 
+A shortcoming of this implementation is that each function suffers the cost of a
+jump and a return at minimum, causing some performance loss in case tracing is
+not turned on. This issue is solved with "dynamic function tracing", which we
+will discuss next.
+
+Static function tracing can be enabled via the \verb|CONFIG_FUNCTION_TRACER|
+compile option.
+
 \subsubsection*{Dynamic function tracing}
 
-TODO
+In order not to have any performance penalty when tracing is supported but
+disabled, ftrace provides a way to dynamically patch functions to add or remove
+tracing instrumentation. This is enabled with the compile option
+\verb|DYNAMIC_FTRACE|.
+
+If dynamic function tracing is enabled, the kernel will patch all calls to
+\verb|mcount| or \verb|__fentry__| with \verb|NOP| operations at boot-time. When
+tracing is enabled, the same \verb|NOP| instruction are patched to a call to
+\verb|ftrace_caller| or \verb|ftrace_regs_caller|. This code patching allows
+for no overhead in case tracing is disabled.
+
+The information of all the locations of all \verb|mcount| calls is generated at
+compile time via the \verb|recordmcount| program which is invoked by the build
+infrastructure. The tool stores all the locations of these functions in the
+\verb|__mcount_loc| ELF section, which is linked in the original object file.
+
+The tracing function \verb|ftrace_caller| is also referred to as a "trampoline"
+because its instructions are dynamically patched to jump to the functions which
+are currently enabled depending on the current tracer o particular events,
+represented in the \verb|struct trace_ops|. Ftrace provides the function
+\verb|register_ftrace_function| to register a trampoline which is created by an
+architecture dependent function, \verb|create_trampoline|.
+
+For example, consider the following assembly function:
+
+\begin{verbatim}
+some_kernel_func:
+  PUSH RBP
+  MOV RSP, RBP
+  ...
+  RET
+\end{verbatim}
+
+When tracing disabled but dynamic tracing is supported, some \verb|NOP|
+operations would be patched in:
+
+\begin{verbatim}
+# Symbol where instructions like: CALL some_kernel_func will jump to.
+some_kernel_func:
+  NOP
+  NOP
+# actual start of the function
+  PUSH RBP
+  MOV RSP, RBP
+  ...
+  RET
+\end{verbatim}
+
+When tracing is enabled, these same \verb|NOP| functions are replaced with
+\verb|ftrace_caller|:
+
+\begin{verbatim}
+# Symbol where instructions like: CALL some_kernel_func will jump to.
+some_kernel_func:
+  CALL ftrace_caller
+  NOP
+# actual start of the function
+  PUSH RBP
+  MOV RSP, RBP
+  [...]
+  RET
+\end{verbatim}
 
 \subsection{Perf}
 
@@ -291,3 +378,5 @@ There are some out of tree systems:
   - DTrace
   - sysdig
   - ...
+
+TODO
