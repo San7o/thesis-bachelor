@@ -1,6 +1,15 @@
 \section{Event Sources}
 
-TODO
+The previous section explained various frameworks for supporting events traces
+and making them available to the user. This section discusses some types of
+events, focusing on their implementation and interaction with said frameworks.
+Example pseudo-code and extracts from the Linux kernel codebase will be
+included.
+
+A distinction is made between \textit{static} events and \textit{dynamic}
+events. Static events are placed by kernel developers in pre-determined
+locations and statically compiled in the kernel. In contrast, dynamic events are
+registered during runtime and can be registered in non-predetermined locations.
 
 \subsection{Static Events}
 
@@ -12,9 +21,8 @@ TODO
 
 TODO
 
-\subsubsection*{User Statically-Defined Tracing}
-
-TODO
+%\subsubsection*{User Statically-Defined Tracing}
+%TODO
 
 \subsection{Dynamic Events}
 
@@ -24,21 +32,14 @@ TODO
 
 TODO
 
-\subsubsection*{Ftrace Tracers}
-
-TODO
-
-\subsubsection*{Fprobe}
-
-TODO
-
-\subsubsection*{Uprobes and Uretprobes}
-
-TODO
-
-\subsubsection*{Eprobes}
-
-TODO
+%\subsubsection*{Ftrace Tracers}
+%TODO
+%\subsubsection*{Fprobe}
+%TODO
+%\subsubsection*{Uprobes and Uretprobes}
+%TODO
+%\subsubsection*{Eprobes}
+%TODO
 
 \subsection{Perf events}
 

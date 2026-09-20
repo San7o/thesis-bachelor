@@ -474,14 +474,17 @@ Tracepoints
 
 Aka. static event tracing.
 
+Intro: https://www.kernel.org/doc/html/latest/trace/tracepoints.html
+
 There are more than 1000 traceoints available (\verb|grep -R TRACE_EVENT include/trace/events|)
+
 
 USEFUL: \url{https://mmi.hatenablog.com/entry/2018/03/04/052249}
 
-Put an entire implementation of a simple module that registers a
+TODO: Put an entire implementation of a simple module that registers a
 tracepoint at the appendix.
 
-`inclide/linux/tracepoint-defs.h:26`:
+`inclide/linux/tracepoint-defs.h:26` (actual full code):
 
 ```
 struct tracepoint_func {
@@ -509,8 +512,33 @@ struct tracepoint {
 };
 ```
 
-We create a tracepoint with `DECLARE_TRACE`. For example, see
-`include/trace/events/sched.h`:
+The most relevant members of the `struct tracepoint` are its "name", which is
+used by the user to identify this particular tracepoint, and one or more
+functions in the "funcs" member to be called when the tracepoint is executed
+(which are of type `struct tracepoint_func`). The "ext" member contains
+functions to be called when registering or unregistering the tracepoint.
+Additionally, the static-key and static-call related fields are performance
+optimizations which will be briefly explained later in this section.
+
+To create a tracepoint, the macro `DECLARE_TRACE` should be used. The macro
+takes three arguments: the name of the tracepoint, the prototype of the function
+that should be called when the tracepoint is executed, and the name of the
+arguments what should be passed to that function (relevant to the specific scope
+where the tracepoint is placed).
+
+For example, consider the following macro statement:
+
+```
+DECLARE_TRACE(foo_tp,
+  TP_PROTO(bool is_bar),
+  TP_ARGS(bar));
+```
+
+This declares a tracepoint called `foo_tp` which calls a function that looks
+like `foo_function(bool is_bar)` which it will be called with the `bar`
+argument, like `foo_function(bar)`.
+
+Consider now a real example from `include/trace/events/sched.h`:
 
 ```
 #undef TRACE_SYSTEM
@@ -531,6 +559,30 @@ DECLARE_TRACE(sched_entry,
 #include <trace/define_trace.h>
 ```
 
+In the first line, the `TRACE_SYSTEM` symbol specifies the subdirectory of
+tracefs where this tracepoint will be registered by the user. The code follows
+by including the file `linux/tracepoint.h` which contains the `DECLARE_TRACE`
+macro definition, and proceeds to declare the `sched_entry` tracepoint. It
+finally includes `trace/define_trace.h` which defines the various functions for
+the tracepoint and static storage, such as functions for registration,
+de-registration, calling the callback, and a function to check if the tracepoint
+is active, among others. The generated function names would be, respectively:
+`register_trace_sched_entry()`, `unregister_trace_sched_entry()`,
+`trace_sched_entry()`, `trace_sched_entry_enabled()`.
+
+It should be noted that the `define_trace.h` header needs to be placed outside
+any inclusion guards so that it will be always included by the preprocessor.
+This is used for a trick with the preprocessor where the `define_trace.h` header
+includes the file that is including it, therefore defining itself again, but
+using `#define` guards to change its definition. For example, if file "X"
+includes `define_trace.h`, then it will include itself, "X", which will include
+`define_trace.h` another time, and so on; this cycle may repeat multiple times,
+until some condition is met. The reason is to redefine the `DECLARE_TRACE` macro
+in different ways to generate different code. This is also used in other parts
+of the kernel, namely "event tracing" which will be explained later in this
+section.
+
+This may not be necessary...
 What happens in the macro expansion is that it creates a tracepoint:
 
 ```
@@ -615,10 +667,6 @@ Declare a bunch of functions
 	}
 ```
 
-This will create several functions, including `register_trace_entry_tp()`,
-`unregister_trace_sched_entry_tp()` and `trace_sched_entry_tp()`, for example
-`kernel/sched/core.c:7071`:
-
 This macro defines the actual static call:
 
 ```
@@ -664,19 +712,20 @@ Which expands to `include/linux/tracepoint.h:426`:
 	EXPORT_STATIC_CALL_GPL(tp_func_##name)
 ```
 
-So we can access the tracepoints via:
+So we can access the tracepoints via, but actually these are not all...:
 
 ```
 extern tracepoint_ptr_t __start___tracepoints_ptrs[];
 extern tracepoint_ptr_t __stop___tracepoints_ptrs[];
 ```
 
+In the code we place a tracepoint with `trace_sched_entry`
 What happen is that:
 
 ```
-trace_sched_##name
-  __do_trace_##name
-      static_call(tp_func_##name)
+trace_sched_entry
+  __do_trace_sched_entry
+      static_call(tp_func_sched_entry)
 ```
 
 Static calls are introduced in https://lkml.iu.edu/2008.2/03685.html:
@@ -700,7 +749,7 @@ funcs in the array and calls each of the callbacks like the old method
 using indirect calling.
 ```
 
-The `tp_func_##name` is usually setup when registering the tracepoint
+The `tp_func_sched_entry` is usually setup when registering the tracepoint
 (`register_trace_##name` -> `tracepoint_probe_register` -> `tracepoint_add_func`
 -> `tracepoint_update_call`). This can be disabled likewise. Note that when
 registering a tracepoint we need to provide the function that will be statically
@@ -716,13 +765,26 @@ if (trace_foo_enabled()) {
 }
 ```
 
+To avoid a conditional branch instruction in the if statement to check if the
+tracepoint is enabled, the code is patched at runtime via a mechanism called
+`static_key` that replaces the if statement with a jump or a NOP instruction
+depending on whether the event is active or not. Note that this is different
+than `static_call` because, unlike `static_call`, it replaces a conditional
+branch (compare + jump instructions) and not a function call. This decreases the
+runtime performance impact of a disabled tracepoint, as the only penalty is
+overall increased code section size due to the tracepoint generated functions.
+
 Event tracing
 -------------
 
 To automatically register the tracepoint in the ftrace / perf inftrastructure,
-we use `TRACE_EVENT` macro instead.
+we use `TRACE_EVENT` macro instead of `DEFINE_TRACE`. This is referred to as
+"event tracing", not to be confused with "perf events" which are related to
+perf.
 
-We create a tracepoint like this `fs/fuse/fuse_trace.h:126`:
+Great exaplaination of the requirements here: https://lwn.net/Articles/379903/
+
+We create a tracepoint event like this `fs/fuse/fuse_trace.h:126`:
 
 ```
 TRACE_EVENT(fuse_request_end,
@@ -748,8 +810,6 @@ TRACE_EVENT(fuse_request_end,
 		  __entry->unique, __entry->len, __entry->error)
 );
 ```
-
-Great exaplaination of the requirements here: https://lwn.net/Articles/379903/
 
 What happens is that there are actually 7 stages of this macro expansion
 `include/trace/trace_events.h:38`:
@@ -874,7 +934,9 @@ of the kernel binary, we can use `DECLARE_EVENT_CLASS` and `DEFINE_EVENT` to
 share some code. See https://lwn.net/Articles/381064/
 
 At the end of the day, the infrastucture creates a tracepoint. When it triggers,
-it commits raw bytes to the ring buffer via `trace_event_raw_event_##call`.
+it commits raw bytes to the ring buffer.
+
+...via `trace_event_raw_event_##call`.
 The set of apis to interact with the ring buffer is located in
 `include/linux/trace_events.h` which use `include/linux/ring_buffer.h` api and
 `kernel/trace/ring_buffer.c` implementation.
@@ -897,6 +959,8 @@ in an `struct trace_iterator` which is passed to `trace_output_call`.
 
 Syscall tracing
 ---------------
+
+Special tracepoints are places for systemcalls in order to trace their accesses.
 
 When we define a syscall, for example at `kernel/fork.c:2825`:
 
