@@ -960,7 +960,7 @@ in an `struct trace_iterator` which is passed to `trace_output_call`.
 Syscall tracing
 ---------------
 
-Special tracepoints are places for systemcalls in order to trace their accesses.
+Special tracepoints are placed for systemcalls in order to trace their accesses.
 
 When we define a syscall, for example at `kernel/fork.c:2825`:
 

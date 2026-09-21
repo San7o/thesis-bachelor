@@ -40,9 +40,8 @@ overwrite mode it overwrite the data.
 The design of the ring buffer needs to meet specific requirements because trace
 events are expected to be originated from anywhere and at anytime, unless
 specifically disabled such on the tracing infrastructure itself to avoid
-recursion, and at high frequency.
-
-Core requirements are, but not limited to, the following:
+recursion, and at high frequency. Key requirements are, but not limited to, the
+following:
 
 \begin{itemize}
 
@@ -57,7 +56,7 @@ the potential high amount of concurrent writes from high frequency events.
 \end{itemize}
 
 The solution implemented in Linux in the file
-\verb|linux/kernel/trace/ring_buffer.c| honors all these requirements using a
+\verb|linux/kernel/trace/ring_buffer.c| fulfills all these requirements using a
 lockless design, for both reader-to-writer and writer-to-writer interactions.
 
 Some key design decisions are now briefly discussed.
