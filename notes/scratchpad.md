@@ -1068,6 +1068,11 @@ Main source of information:
 \url{https://www.kernel.org/doc/html/latest/trace/kprobes.html}
 COOL: \url{https://lwn.net/Articles/132196/}
 
+Introduction
+++++++++++++
+
+Compiled in if ` CONFIG_KPROBES` is set.
+
 There are kprobes and kretprobes.
 
 From https://www.kernel.org/doc/html/latest/trace/kprobes.html:
@@ -1099,7 +1104,7 @@ is places pushed onto the stack by the caller.
 
 Note that kprobes can do everything, which is very dangerous.
 
-Kprobes may perform jump optimization if the architecture supports
+...Kprobes may perform jump optimization if the architecture supports
 it and the kernel was built with \verb|CONFIG_OPTPROBES=y|. In this case,
 instead of a breakpoint instruction, the CPU performs a jump instead.
 
@@ -1119,16 +1124,46 @@ API is in include/linux/kprobes.h
 
 \end{verbatim}
 
-Kprobes have probe handlers, a kprobe manager and architecture
-dependent layers for messing with instruction and exceptions.
+\begin{verbatim}
+
+struct kprobe {
+	struct hlist_node hlist;
+	/* list of kprobes for multi-handler support */
+	struct list_head list;
+	/*count the number of times this probe was temporarily disarmed */
+	unsigned long nmissed;
+	/* location of the probe point */
+	kprobe_opcode_t *addr;
+	/* Allow user to indicate symbol name of the probe point */
+	const char *symbol_name;
+	/* Offset into the symbol */
+	unsigned int offset;
+	/* Called before addr is executed. */
+	kprobe_pre_handler_t pre_handler;
+	/* Called after addr is executed, unless... */
+	kprobe_post_handler_t post_handler;
+	/* Saved opcode (which has been replaced with breakpoint) */
+	kprobe_opcode_t opcode;
+	/* copy of the original instruction */
+	struct arch_specific_insn ainsn;
+	/*
+	 * Indicates various status flags.
+	 * Protected by kprobe_mutex after this kprobe is registered.
+	 */
+	u32 flags;
+};
+
+\end{verbatim}
+
+Notably, kprobes have a pre and a post handler. The post handler is optional.
 
 You call register / undegister kprobe / kretprobe. You can enable and
-disable them.
+disable them. Use `register_kprobe()` and `unregister_kprobe()` functions.
 
 You can use a symbol instead of an address, the kernel will resolve
 the address from the symbol using System.map symbol table.
 
-The list of registered kprobes is visible under DEBUGFS/kprobes/list
+The list of registered kprobes is visible under $DEBUGFS/kprobes/list
 
 From `include/linux/kprobes.c` we see a global kprobe_table list:
 
@@ -1139,7 +1174,7 @@ From `include/linux/kprobes.c` we see a global kprobe_table list:
 static struct hlist_head kprobe_table[KPROBE_TABLE_SIZE];
 ```
 
-Example program:
+Let's now walk throught an exaple program.
 
 ```
 #include <linux/module.h>
@@ -1223,17 +1258,19 @@ MODULE_DESCRIPTION("kprobe example");
 MODULE_LICENSE("GPL v2");
 ```
 
+TODO: make a commentary of this. Maybe divide it in parts.
+
 Implementation
 ++++++++++++++
 
-kernel/kprobes.c implements the mangaer, which stores an hashmap of
+kernel/kprobes.c implements the logic, which stores an hashmap of
 kprobes indexed by their address at which the probe is placed, and
 blacklisted entries. Insertion and deletion to this table is guarded
 by a mutex to prevent these operations from executing simultaneously.
 
-Example implementation usage \verb|kprobe_table|:
-
-kernel/kprobes.c:378
+Kprobes are stored in the \verb|kprobe_table|. Blacklisted address ranges are
+stored in the list \verb|kprobe_blacklist|. Example use of \verb|kprobe_table|,
+extracted from `kernel/kprobes.c:378`:
 
 \begin{verbatim}
 
@@ -1251,6 +1288,7 @@ struct kprobe *get_kprobe(void *addr)
 
 	return NULL;
 }
+\end{verbatim}
 
 If `p->flags & KPROBE_FLAG_FTRACE`, the kprobe is registered via the `ftrace`
 instrumentation.

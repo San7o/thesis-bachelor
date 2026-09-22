@@ -375,11 +375,146 @@ using the metadata registered from \verb|SYSCALL_DEFINEX| for printing.
 
 \subsection{Dynamic Events}
 
-TODO
-
 \subsubsection*{Kprobes and Kretprobes}
 
-TODO
+\textit{Kprobes} are events that can be dynamically placed almost anywhere on
+the kernel. They use code patching to replace any instruction with a call to a
+trace function, which saves and values of the registers and restores them when
+it completes. The instruction that was replaced will be single-stepped
+(executed) by the kprobe, so the program will continue to run as originally
+expected. Such instrumentation does not require any special infrastructure on
+the traced function, which makes kprobes particularly useful and versatile. The
+kprobe infrastructure is available with the kernel compile option
+\verb|CONFIG_KPROBES|.
+
+Two different kinds of probes exist: \textit{kprobes} which are often placed at
+the beginning of functions, and \textit{kretprobes} which are called at the end
+of the function and may alter the return value. A kprobe or kretprobe sets up a
+call to two functions, if specified: a \textit{pre-handler}, which is called
+before single-stepping the replaced instruction, and a \textit{post-handler}
+which is instead executed after.
+
+A kprobe is represented by the type \verb|struct kprobe| which is reported
+below, with comments explaining the various members:
+
+\begin{verbatim}
+typedef int (*kprobe_pre_handler_t) (struct kprobe *, struct pt_regs *);
+typedef void (*kprobe_post_handler_t) (struct kprobe *, struct pt_regs *,
+              unsigned long flags);
+
+struct kprobe {
+  struct hlist_node hlist;
+  /* list of kprobes for multi-handler support */
+  struct list_head list;
+  /*count the number of times this probe was temporarily disarmed */
+  unsigned long nmissed;
+  /* location of the probe point */
+  kprobe_opcode_t *addr;
+  /* Allow user to indicate symbol name of the probe point */
+  const char *symbol_name;
+  /* Offset into the symbol */
+  unsigned int offset;
+  /* Called before addr is executed. */
+  kprobe_pre_handler_t pre_handler;
+  /* Called after addr is executed, unless... */
+  kprobe_post_handler_t post_handler;
+  /* Saved opcode (which has been replaced with breakpoint) */
+  kprobe_opcode_t opcode;
+  /* copy of the original instruction */
+  struct arch_specific_insn ainsn;
+  /*
+   * Indicates various status flags.
+   * Protected by kprobe_mutex after this kprobe is registered.
+   */
+  u32 flags;
+};
+\end{verbatim}
+
+A kprobe can be register and unregistered with the functions
+\verb|register_kprobe()| and \verb|unregister_kprobe()|. They can be temporarely
+enabled with \verb|enable_kprobe()| and disabled with \verb|disable_kprobe()|.
+The list of registered kprobes is accessible by reading the file
+\textit{\$DEBUGFS/kprobes/list} where \verb|$DEBUGFS| is the location where
+the \textit{debugfs} filesystem is mounted.
+
+Let's look at an example kernel module that register a kprobe on the
+\verb|openat2| systemcall to log the name of the file that the user wants to
+open:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#include <linux/module.h>
+#include <linux/kprobes.h>
+
+#define MAX_FILENAME_LEN 1024
+
+/* This gets executed before single-stepping the probed instruction */
+static int hello_kprobe_pre_handler(struct kprobe *p, struct pt_regs *regs)
+{
+  const char __user * user_filename =
+    (const char __user*) regs_get_kernel_argument(regs, 1); /* regs start at 0 */
+  if (!user_filename) {
+    printk(KERN_ERR "Kprobe: error reading filename in pre handler\n");
+    return -1;
+  }
+
+  char filename[MAX_FILENAME_LEN] = {0};
+  long ret = raw_copy_from_user(filename, user_filename,
+                                MAX_FILENAME_LEN);
+  if (ret < 0) {
+    printk(KERN_ERR "Kprobe: error copying filename\n");
+    return -1;
+  }
+
+  printk(KERN_INFO "Kprobe: intercepted access to %s\n", filename);
+
+  return 0;
+}
+
+/* This gets executed after single-stepping the probed instruction */
+static void hello_kprobe_post_handler(struct kprobe *kprobe,
+                                      struct pt_regs *regs,
+                                      unsigned long flags)
+{
+  /* does nothing */
+}
+
+struct kprobe kp = (struct kprobe) {
+  .symbol_name  = "do_sys_openat2",
+  .pre_handler  = hello_kprobe_pre_handler,
+  .post_handler = hello_kprobe_post_handler,
+};
+
+static int __init hello_kprobe_init(void)
+{
+  printk(KERN_INFO "Kprobe: Hello, kprobe!\n");
+
+  int ret = register_kprobe(&kp);
+  if (ret < 0) {
+    printk(KERN_ERR "Kprobe: error registering kprobe\n");
+    return -1;
+  }
+  return 0;
+}
+
+static void __exit hello_kprobe_cleanup(void)
+{
+  unregister_kprobe(&kp);
+  printk(KERN_INFO "Kprobe: unregistered");
+}
+
+module_init(hello_kprobe_init);
+module_exit(hello_kprobe_cleanup);
+
+MODULE_AUTHOR("Giovanni Santini");
+MODULE_DESCRIPTION("kprobe example");
+MODULE_LICENSE("GPL v2");
+\end{Verbatim}
+
+TODO: Explaination
+
+TODO: Implementation
+
+\input{chapters/chapter-1-tracing/figures/kprobe-execution-fig.tex}
 
 %\subsubsection*{Ftrace Tracers}
 %TODO

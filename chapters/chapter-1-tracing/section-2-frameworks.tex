@@ -359,20 +359,20 @@ make it easier to write scripts which perform administrative functions.
 Originally, ftrace used the \textit{debufgs} but it grew substantially to
 motivate the addition of the current interface, tracefs.
 
-In this section, the term \textit{\$TRACEFS\_ROOT} will be used to represent the
-location where the tracefs is mounted from the root directory.
+In this section, the term \textit{\$TRACEFS} will be used to represent the
+location where the tracefs filesystem is mounted.
 
 The user can access the formatted content of all ring buffers by reading the
-file \textit{\$TRACEFS\_ROOT / trace} without consuming the buffer, or
-\textit{\$TRACEFS\_ROOT / trace\_pipe} to consume it. Additionally, he can get
+file \textit{\$TRACEFS/trace} without consuming the buffer, or
+\textit{\$TRACEFS/trace\_pipe} to consume it. Additionally, he can get
 information about the buffer state from several files beginning with
 \verb|buffer_*|. To access a particular per-CPU buffer, he can use the files
-from the directory \textit{\$TRACEFS\_ROOT / per\_cpu / \$CPU\_NUMBER /}.
+from the directory \textit{\$TRACEFS/per\_cpu/\$CPU\_NUMBER/}.
 
 The user can query a list of the tracers supported by its running kernel by
-reading the file \textit{\$TRACEFS\_ROOT / available\_tracers}. He can select a
-tracer by writing its name to the file \textit{\$TRAEFS\_ROOT / current\_tracer}
-and tune its options from \textit{\$TRACEFS\_ROOT / options / \$OPTION\_NAME}.
+reading the file \textit{\$TRACEFS/available\_tracers}. He can select a
+tracer by writing its name to the file \textit{\$TRAEFS/current\_tracer}
+and tune its options from \textit{\$TRACEFS/options/\$OPTION\_NAME}.
 
 Additionally, tracefs provides a way to specify filters for events, so that only
 certain evens in certain contexts will be logged.
@@ -430,13 +430,12 @@ starting and stopping tracing and reading the counter.
 All the PMUs are registered with the \verb|perf_pmu_register| function and added
 to a global list of all PMUs. The function takes a \verb|struct pmu|, a name and
 an integer "type". The name is used to register a directory in the
-\textit{sysfs} filesystem under \textit{\$SYSFS\_ROOT / bus / event\_source /
-devices/\$NAME /} where \verb|$SYSFS\_ROOT| is the location of the sysfs
-filesystem, and \verb|$NAME| is the name of the PMU passed to the registration
-function. The "type" argument will specify which binary format the event will
-use.
-Each PMU contains pointer to functions to manage the one or more event; the
-structure looks like the following:
+\textit{sysfs} filesystem under
+\textit{\$SYSFS/bus/event\_source/devices/\$NAME/} where \verb|$SYSFS| is the
+location of the sysfs filesystem, and \verb|$NAME| is the name of the PMU passed
+to the registration function. The "type" argument will specify which binary
+format the event will use. Each PMU contains pointer to functions to manage the
+one or more event; the structure looks like the following:
 
 \begin{verbatim}
 struct pmu {

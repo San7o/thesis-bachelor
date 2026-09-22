@@ -1,0 +1,65 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    scale=1.0,
+    every node/.style={
+        transform shape
+    },
+    node distance=1.5cm,
+    block/.style={
+      rectangle,
+      draw=gray!80,
+      fill=gray!5,
+      rounded corners=4px,
+      minimum width=3.2cm,
+      minimum height=1.2cm,
+      font=\small\bfseries,
+      align=center,
+      line width=1.2pt
+    },
+    flow/.style={
+      -latex,
+      line width=1.2pt,
+      draw=gray!80
+    }
+]
+
+    % =========================================================================
+    % FLOWCHART NODES (Top Row)
+    % =========================================================================
+    \node[block, text width=2.8cm] (int3) {int3 hit\\[0.35em]\mdseries\footnotesize\texttt{do\_int3}};
+
+    \node[block, right=1.8cm of int3, text width=3.8cm] (prehandler) {Call pre\_handler\\[0.2em]Set up single-stepping\\[0.35em]\mdseries\footnotesize\texttt{kprobe\_handler}};
+
+    \node[block, right=1.8cm of prehandler, text width=2.8cm] (singlestep) {single-step};
+
+    % =========================================================================
+    % FLOWCHART NODES (Bottom Row)
+    % =========================================================================
+    \node[block, below=2.2cm of singlestep, text width=2.8cm] (debug) {debug-exception\\[0.35em]\mdseries\footnotesize\texttt{do\_debug}};
+
+    \node[block, left=1.8cm of debug, text width=3.8cm] (posthandler) {Call post\_handler\\[0.2em]Resume Execution\\[0.35em]\mdseries\footnotesize\texttt{post\_kprobe\_handler}};
+
+    \node[block, left=1.8cm of posthandler, text width=2.8cm] (nextinst) {next instruction\\[0.2em]after probe};
+
+    % =========================================================================
+    % CONNECTORS
+    % =========================================================================
+    \draw[flow] (int3) -- (prehandler);
+    \draw[flow] (prehandler) -- (singlestep);
+
+    % Vertical connector on the right with label
+    \draw[flow] (singlestep) -- (debug) node[midway, right, font=\footnotesize, align=left] {probed\\instruction};
+
+    \draw[flow] (debug) -- (posthandler);
+    \draw[flow] (posthandler) -- (nextinst);
+
+    % =========================================================================
+    % SIDE LABEL
+    % =========================================================================
+    \node[font=\bfseries\small, rotate=90] at ($(int3.west) + (-0.6cm, 0)$) {probe};
+
+\end{tikzpicture}
+\caption{Execution of a KProbe.}
+\label{fig:execution_of_a_kprobe}
+\end{figure}
