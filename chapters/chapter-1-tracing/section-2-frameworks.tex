@@ -40,8 +40,8 @@ overwrite mode it overwrite the data.
 The design of the ring buffer needs to meet specific requirements because trace
 events are expected to be originated from anywhere and at anytime, unless
 specifically disabled such on the tracing infrastructure itself to avoid
-recursion, and at high frequency. Key requirements are, but not limited to, the
-following:
+infinite recursion, and at high frequency. Key requirements are, but not limited
+to, the following:
 
 \begin{itemize}
 

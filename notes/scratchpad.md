@@ -1273,7 +1273,6 @@ stored in the list \verb|kprobe_blacklist|. Example use of \verb|kprobe_table|,
 extracted from `kernel/kprobes.c:378`:
 
 \begin{verbatim}
-
 struct kprobe *get_kprobe(void *addr)
 {
 	struct hlist_head *head;
