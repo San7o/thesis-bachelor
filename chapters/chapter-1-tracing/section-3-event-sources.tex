@@ -648,12 +648,169 @@ probe.
 
 \subsection{Perf events}
 
-TODO
+The perf subsystem had been described previously. This section will discuss how
+a perf event is registered and accessed from userspace.
 
-\subsubsection*{Software Events}
+Consider the following code of a kernel module registering a perf software
+event counter:
 
-TODO
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#include <linux/module.h>
+#include <linux/kthread.h>
+#include <linux/perf_event.h>
+#include <linux/uaccess.h>
 
-\subsubsection*{Hardware Events}
+static struct pmu hello_pmu;
+static atomic64_t global_counter = ATOMIC64_INIT(0);
 
-TODO
+static int hello_pmu_init(struct perf_event *event)
+{
+  if (event->attr.type != hello_pmu.type)
+    return -ENOENT;
+
+  if (is_sampling_event(event))
+    return -EINVAL;
+
+  event->hw.state = PERF_HES_STOPPED | PERF_HES_UPTODATE;
+
+  return 0;
+}
+
+static void hello_pmu_read(struct perf_event *event)
+{
+  local64_set(&event->count, atomic64_read(&global_counter));
+}
+
+static void hello_pmu_start(struct perf_event *event, int flags)
+{
+  event->hw.state &= ~(PERF_HES_STOPPED | PERF_HES_UPTODATE);
+}
+
+static int hello_pmu_add(struct perf_event *event, int flags)
+{
+  u64 now = atomic64_read(&global_counter);
+
+  local64_set(&event->count, 0);
+  local64_set(&event->hw.prev_count, now);
+
+  if (flags & PERF_EF_START)
+    hello_pmu_start(event, flags);
+
+  return 0;
+}
+
+static void hello_pmu_stop(struct perf_event *event, int flags)
+{
+  hello_pmu_read(event);
+  event->hw.state |= PERF_HES_STOPPED;
+}
+
+static void hello_pmu_del(struct perf_event *event, int flags)
+{
+  hello_pmu_stop(event, flags);
+}
+
+static void hello_pmu_enable(struct pmu *pmu) { }
+
+static void hello_pmu_disable(struct pmu *pmu) { }
+
+static void hello_perf_increment(void)
+{
+  atomic64_inc(&global_counter);
+}
+
+static int __init hello_perf_init(void)
+{
+  int ret;
+
+  memset(&hello_pmu, 0, sizeof(hello_pmu));
+
+  hello_pmu.task_ctx_nr  = perf_invalid_context;  /* global context */
+  hello_pmu.capabilities = PERF_PMU_CAP_NO_INTERRUPT;
+  hello_pmu.event_init   = hello_pmu_init;
+  hello_pmu.add          = hello_pmu_add;
+  hello_pmu.del          = hello_pmu_del;
+  hello_pmu.start        = hello_pmu_start;
+  hello_pmu.stop         = hello_pmu_stop;
+  hello_pmu.read         = hello_pmu_read;
+  hello_pmu.pmu_enable   = hello_pmu_enable;
+  hello_pmu.pmu_disable  = hello_pmu_disable;
+
+  ret = perf_pmu_register(&hello_pmu, "hello_pmu", -1);
+  if (ret)
+    return ret;
+
+  pr_info("hello_pmu registered with type %d\n", hello_pmu.type);
+
+  return 0;
+}
+
+static void __exit hello_perf_cleanup(void)
+{
+  perf_pmu_unregister(&hello_pmu);
+}
+
+module_init(hello_perf_init);
+module_exit(hello_perf_cleanup);
+
+MODULE_AUTHOR("Giovanni Santini");
+MODULE_DESCRIPTION("perf event example");
+MODULE_LICENSE("GPL v2");
+\end{Verbatim}
+
+This module defines a counter \verb|global_counter| on line 7 which is
+atomically incremented by the function \verb|hello_perf_init()|. In the module
+initialization function on line 65, the \verb|hello_pmu| PMU is initialzied with
+pointers to functions used to manage it and registered on line 86. A notable
+method is \verb|hello_pmu_read()| which is used to read the event. This function
+simply copies the content of the \verb|global_counter| into the event "count"
+member. When the module is unloaded, the PMU is unregistered on line 93.
+
+An userspace program that reads the event could be implemented with the
+following code:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#include <linux/perf_event.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char **argv)
+{
+  struct perf_event_attr attr;
+  int fd;
+  uint64_t count;
+
+  memset(&attr, 0, sizeof(attr));
+  attr.type     = 11; /* depends on the specific event */
+  attr.config   = 0;
+  attr.disabled = 0;
+  attr.inherit  = 0;
+
+  /*
+  int syscall(SYS_perf_event_open, struct perf_event_attr *attr,
+              pid_t pid, int cpu, int group_fd, unsigned long flags);
+  */
+  fd = syscall(__NR_perf_event_open, &attr, -1, 0, -1, 0);
+  if (fd < 0) {
+    perror("perf_event_open");
+    return EXIT_FAILURE;
+  }
+
+  if (read(fd, &count, sizeof(count)) != sizeof(count)) {
+    perror("read");
+    return 1;
+  }
+
+  printf("Current counter value: %lu\n", count);
+
+  close(fd);
+  return EXIT_SUCCESS;
+}
+\end{Verbatim}
+
+This program initializes a \verb|struct perf_event_attr| then calls the
+\verb|perf_event_open| and reads the counter from the returned file descriptor.
