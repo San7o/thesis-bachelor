@@ -430,16 +430,16 @@ struct kprobe {
 };
 \end{verbatim}
 
-A kprobe can be register and unregistered with the functions
+A kprobe can be registered and unregistered with the functions
 \verb|register_kprobe()| and \verb|unregister_kprobe()|. They can be temporarely
 enabled with \verb|enable_kprobe()| and disabled with \verb|disable_kprobe()|.
 The list of registered kprobes is accessible by reading the file
-\textit{\$DEBUGFS/kprobes/list} where \verb|$DEBUGFS| is the location where
-the \textit{debugfs} filesystem is mounted.
+\textit{\$DEBUGFS/kprobes/list} where \verb|$DEBUGFS| is the location where the
+\textit{debugfs} filesystem is mounted.
 
 Let's look at an example kernel module that register a kprobe on the
-\verb|openat2| systemcall to log the name of the file that the user wants to
-open:
+\verb|do_sys_openat2| function which is called by the \verb|openat2| systemcall,
+and logs the name of the file that the user wants to open:
 
 \begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
 #include <linux/module.h>
@@ -510,7 +510,24 @@ MODULE_DESCRIPTION("kprobe example");
 MODULE_LICENSE("GPL v2");
 \end{Verbatim}
 
-TODO: Explaination
+On line 7 and line 30 the kprobe's pre-handler \verb|hello_kprobe_pre_handler()|
+and post-handler \verb|hello_kprobe_post_handler()| functions are defined. Both
+pre and post handlers can access the CPU registers via the struct \verb|struct pt_regs|.
+Looking now at the pre-handler, the values of the registers correspond to the
+argument to the function according to the C ABI for the specific CPU
+architecture used, since the kprobe was placed in a function. The pre-handler
+gets the second argument from the function using
+\verb|regs_get_kernel_argument()| on line 9, which corresponds to the filenane,
+then copies its value from userspace to kernelspace on line 17 and logs it on
+line 24 using \verb|printk()| which writes it to a special ringbuffer used for
+kernel prints which is accessible from \textit{\$PROCFS/kmsg}. On line 37 the
+code defines the kprobe \verb|kp| with its pre and post handler, and the
+location where it should be placed. The specific address of the kprobe will be
+resolved from the symbol specified in the \verb|symbol_name| member, which will
+use the \verb|System.map| symbol table infrastructure containing the positions
+of all the symbols in the kernel. Finally on line 47 the kprobe is registered
+when the module is loaded, and unregistered in line 57 when the module is
+unloaded.
 
 TODO: Implementation
 
