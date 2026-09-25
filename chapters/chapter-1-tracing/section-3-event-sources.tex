@@ -544,17 +544,17 @@ present in \textit{\$LINUX/kernel/kprobes.c:378} which returns the
 \begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
 struct kprobe *get_kprobe(void *addr)
 {
-	struct hlist_head *head;
-	struct kprobe *p;
+  struct hlist_head *head;
+  struct kprobe *p;
 
-	head = &kprobe_table[hash_ptr(addr, KPROBE_HASH_BITS)];
-	hlist_for_each_entry_rcu(p, head, hlist,
-				 lockdep_is_held(&kprobe_mutex)) {
-		if (p->addr == addr)
-			return p;
-	}
+  head = &kprobe_table[hash_ptr(addr, KPROBE_HASH_BITS)];
+  hlist_for_each_entry_rcu(p, head, hlist,
+         lockdep_is_held(&kprobe_mutex)) {
+    if (p->addr == addr)
+      return p;
+  }
 
-	return NULL;
+  return NULL;
 }
 \end{Verbatim}
 
@@ -588,17 +588,17 @@ present, as shown in the following extract:
 \begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
 static bool do_int3(struct pt_regs *regs)
 {
-	int res;
+  int res;
 
   // ...
 
 #ifdef CONFIG_KPROBES
-	if (kprobe_int3_handler(regs))
-		return true;
+  if (kprobe_int3_handler(regs))
+    return true;
 #endif
-	res = notify_die(DIE_INT3, "int3", regs, 0, X86_TRAP_BP, SIGTRAP);
+  res = notify_die(DIE_INT3, "int3", regs, 0, X86_TRAP_BP, SIGTRAP);
 
-	return res == NOTIFY_STOP;
+  return res == NOTIFY_STOP;
 }
 NOKPROBE_SYMBOL(do_int3);
 \end{Verbatim}

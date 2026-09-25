@@ -1071,13 +1071,13 @@ COOL: \url{https://lwn.net/Articles/132196/}
 Introduction
 ++++++++++++
 
-Compiled in if ` CONFIG_KPROBES` is set.
+Compiled inif ` CONFIG_KPROBES` is set.
 
 There are kprobes and kretprobes.
 
 From https://www.kernel.org/doc/html/latest/trace/kprobes.html:
 
-```
+``
 When a kprobe is registered, Kprobes makes a copy of the probed instruction and
 replaces the first byte(s) of the probed instruction with a breakpoint
 instruction (e.g., int3 on i386 and x86_64).

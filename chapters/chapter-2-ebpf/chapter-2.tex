@@ -1,14 +1,108 @@
 \chapter{eBPF}
 
-TODO
-
 \section{Introduction and overview}
 
 TODO
 
 \section{Instruction Set}
 
-TODO
+eBPF programs are written in the eBPF \textit{instruction set architecture}
+(ISA), often referred to simply as BPF ISA. The ISA defines the set of
+instructions that an eBPF program can use, and are expected to be available from
+an eBPF runtime. A compiler may be used to generate the BPF instructions from an
+higher-level language such as C or Rust to make the development of eBPF program
+easier for developers.
+
+Standardizing the BPF ISA is significant to allow compiler developers, tools
+developers, eBPF runtime developers and ASIC designers to agree to a common
+reference. The formal IETF standardization effort was started from earlier
+drafts in October 2023 with RFC 9669; the RFC was finally standardized one year
+later and updated multiple times since the first version. All the information
+presented in this section are referring to the RFC as last updated in 20 May
+2026.
+
+Controversially, the RFC does not standardize the platform-specific application
+binary interface (ABI) because a common consensus was not reached and it was
+preferred to be left out of the standard. This includes various details such as:
+which registers are saved across a call, which registers contain the frame
+pointer, how large the stack is, and other specifics. Further standardization is
+left for "future work"; however, the Linux BPF ABI is well explained in the
+kernel documentation and any BPF runtime that wishes to be compatible with the
+Linux implementation must follow it.
+
+TODO: introduce the following code
+
+\noindent
+\vspace{0.5em}
+
+\begin{minipage}[t]{0.47\textwidth}
+\begin{verbatim}
+int sum_foo(int a, int b) {
+    return foo(a + b);
+}
+\end{verbatim}
+\end{minipage}%
+\hfill
+\vrule % This creates the vertical dividing bar
+\hfill
+\begin{minipage}[t]{0.47\textwidth}
+\begin{verbatim}
+sum_foo(int, int):
+        *(u32 *)(r10 - 4) = w1
+        *(u32 *)(r10 - 8) = w2
+        w1 = *(u32 *)(r10 - 4)
+        w2 = *(u32 *)(r10 - 8)
+        w1 += w2
+        call foo(int)
+        exit
+\end{verbatim}
+\end{minipage}
+
+\noindent
+\vspace{0.5em}
+
+TODO: describe the previous code
+
+\subsection*{Instructions and encoding}
+
+The standard specifies two instruction encodings: one using 64 bits and another
+one using 128 bits. Instructions are assigned to a named conformance group,
+which is a set of instructions or other requirements identified with a short
+ASCII label, such as "base32". An implementation of the BPF ISA must support the
+"base32" conformance group, but may or may not support other groups.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{bytefield}[bitwidth=1.1em]{32}
+        % Header bit numbers (optional)
+        \bitheader{0, 5, 11, 31} \\
+
+        % First row
+        \bitbox{6}{opcode} & \bitbox{6}{regs} & \bitbox{20}{offset} \\
+
+        % Second row
+        \bitbox{32}{imm}
+    \end{bytefield}
+    \caption{Example instruction format.}
+    \label{fig:instruction}
+\end{figure}
+
+The BTF ISA supports atomic operations for load and store instructions, which
+ensure that the operation cannot be interrupted or corrupted by other accesses
+to the same memory region by another BPF program or other actors. Other than
+atomic \verb|ADD|, \verb|OR|, \verb|AND| and \verb XOR|, BPF provide \verb|XCHG|
+for atomic exchange, and \verb|CMPXCHG| for atomic compare and exchange.
+
+A complete list of the encoding of each instruction is found in the RFC.
+
+\subsection*{Helper Functions}
+
+\subsection*{Maps}
+
+\subsection*{Compiler Support}
+
+Clang 11+ and GCC 12.1+ support compiling C to BPF bytecode. Atomic operations
+which map to atomic instructions can be specified with intrinsics.
 
 \section{Verifier}
 

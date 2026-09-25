@@ -47,13 +47,26 @@ ABI: https://origin.kernel.org/doc/html/latest/bpf/standardization/abi.html
 
 Notes:
 
-The standard specifies two instruction encoding, one using 64 bits and another
-one using 128 bits. Instructions are assigned to a conformance group. An
-implementation of BPF may support only some conformance groups.
+eBPF programs are written in the eBPF \textit{instruction set architecture}
+(ISA), often referred to simply as BPF ISA. The ISA defines the set of
+instructions that an eBPF program can use, and are expected to be available from
+an eBPF runtime. A compiler may be used to generate the BPF instructions from an
+higher-level language such as C or Rust to make the development of eBPF program
+easier for developers.
 
-It was standardized October 2024 via RFC9669, to allow compiler developers,
-tools developers and eBPF runtime developers and ASIC designers to agree to a
-common standard.
+Standardizing the BPF ISA is important to allow compiler developers, tools
+developers, eBPF runtime developers and ASIC designers to agree to a common
+reference. The formal IETF standardization effort was started from earlier
+drafts in October 2023 with RFC 9669; the RFC was finally standardized one year
+later and updated multiple times since the first version. All the information
+presented in this section are referring to the RFC as last updated in 20 May
+2026.
+
+The standard specifies two instruction encoding, one using 64 bits and another
+one using 128 bits. Instructions are assigned to a named conformance group, each
+one defining a sets of instructions or other requirements, which are identified
+with a short ASCII label such as "base32". An implementation of the BPF ISA must
+support the "base32" conformance group, but may or may not support others.
 
 Some good insights:
 
@@ -134,7 +147,7 @@ Wide instruction encoding:
    *next_imm:*  second signed integer immediate value
 ```
 
-Instruction classes:
+The instruction classes are the following:
 
 ```
       +=======+=======+=================================+===========+
@@ -158,21 +171,23 @@ Instruction classes:
       +-------+-------+---------------------------------+-----------+
 ```
 
-The jump instruction `call` set with `src_reg=0x0` or `src_reg=0x2` will call an
-helper functions by either static ID or BTF ID respectively. Helper functions
-are implemented by the underlying platform to provide platform-specific
-functionalities. They are not standardized by RFC9669, but they are documented
-in the Linux kernel documentation. More about helper functions later.
+The RFC introduces the concept of `helper functions` which provide
+functionalities implemented by the underlying platform. Notably, helper
+functions are not standardized by RFC9669, but they are documented in the Linux
+kernel, which will be discussed in a later chapter. To call an helper function,
+the jump instruction must be executed with its source register as `0x0` or
+`0x2`, with a platform-specific `ID` identifying a specific function.
 
-Load and store functions define atomic operations, which ensure that the
-operation cannot be interrupted or corrupted by other accesses to the same
-memory region by another BPF program or other actors. Other than atomic `ADD`,
-`OR`, `AND` and `XOR`, BPF provide `XCHG` for atomic exchange, and `CMPXCHG` for
-atomic compare and exchange.
+Another supported feature from the standard are atomic operations for load and
+store instructions, which ensure that the operation cannot be interrupted or
+corrupted by other accesses to the same memory region by another BPF program or
+other actors. Other than atomic `ADD`, `OR`, `AND` and `XOR`, BPF provide `XCHG`
+for atomic exchange, and `CMPXCHG` for atomic compare and exchange.
 
-64-bit Immediate Instructions use wide instruction encoding to hold an opcode
+...64-bit Immediate Instructions use wide instruction encoding to hold an opcode
 subtype in `src_reg`.
 
+(figure may not be essential)
 ```
 
     +=========+================================+==========+==========+
@@ -222,13 +237,29 @@ subtype in `src_reg`.
       compilation purposes
 ```
 
+A complete list of the encoding of each instruction is found in the RFC and is
+not covered here.
+
 RFC9669 defines "maps" as shared memory regions accessible by BPF programs on
 some platforms.
 
 The standard also defines "platform variables" which are memory regions
 identified by integer ids exposed by the runtime.
 
-Clang 11+ and GCC 12.1+ support BPF bytecode.
+
+Controversly, the RFC does not standardize the platform-specific application
+binary interface (ABI) because a common consensus was not reached and it was
+preferred to be left out of the standard. This includes various details such as:
+which registers are saved across a call, which registers contain the frame
+pointer, how large the stack is, and other specifics. Further standardization is
+left for "future work"; however, the Linux BPF ABI is well explained in the
+kernel documentation and any BPF runtime that wishes to be compatible with the
+Linux implementation must follow it.
+
+Clang 11+ and GCC 12.1+ support compiling C to BPF bytecode. Atomic operations
+which map to atomic instructions can be specified with intrinsics.
+
+TODO: show an example of C and BPF code.
 
 The verifier
 ------------
@@ -1171,7 +1202,11 @@ This is the most recent patch:
 
 TODO: tokens:
 
-    https://lore.kernel.org/bpf/20240124022127.2379740-1-andrii@kernel.org/
+    v2: https://lore.kernel.org/bpf/20240124022127.2379740-1-andrii@kernel.org/
+    v5: https://lore.kernel.org/all/20230919214800.3803828-1-andrii@kernel.org/
+
+CAP_BPF is necessary to load eBPF programs, and may require some other
+capabilities such as CAP_NET_ADMIN to load XDP or traffic control programs.
 
 Use Cases and modern ecosystem
 ------------------------------
