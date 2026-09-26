@@ -30,7 +30,8 @@ left for "future work"; however, the Linux BPF ABI is well explained in the
 kernel documentation and any BPF runtime that wishes to be compatible with the
 Linux implementation must follow it.
 
-TODO: introduce the following code
+The figure below shows C code on the left and an human readable form of BPF
+bytecode on the right compiled with clang 23.1.0:
 
 \noindent
 \vspace{0.5em}
@@ -61,7 +62,9 @@ sum_foo(int, int):
 \noindent
 \vspace{0.5em}
 
-TODO: describe the previous code
+Each line on the right corresponds to a BPF assembly instruction. The term
+\verb|w1|, \verb|w2| represent the first word of the register number 1 and 2
+respectively, and \verb|r10| is the full register number 10.
 
 \subsection*{Instructions and encoding}
 
@@ -75,33 +78,100 @@ ASCII label, such as "base32". An implementation of the BPF ISA must support the
     \centering
     \begin{bytefield}[bitwidth=1.1em]{32}
         % Header bit numbers (optional)
-        \bitheader{0, 5, 11, 31} \\
+        \bitheader{0, 7, 15, 31} \\
 
         % First row
-        \bitbox{6}{opcode} & \bitbox{6}{regs} & \bitbox{20}{offset} \\
+        \bitbox{8}{opcode} & \bitbox{8}{regs} & \bitbox{16}{offset} \\
 
         % Second row
         \bitbox{32}{imm}
     \end{bytefield}
-    \caption{Example instruction format.}
-    \label{fig:instruction}
+    \caption{64 bit instruction encoding.}
+    \label{fig:instruction-encoding}
 \end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{bytefield}[bitwidth=1.1em]{32}
+        % Optional: Bit header numbers
+        \bitheader{0, 7, 15, 31} \\
+
+        % Row 1: opcode, regs, offset
+        \bitbox{8}{opcode} & \bitbox{8}{regs} & \bitbox{16}{offset} \\
+
+        % Row 2: imm
+        \bitbox{32}{imm} \\
+
+        % Row 3: reserved
+        \bitbox{32}{reserved} \\
+
+        % Row 4: next_imm (remember to escape the underscore!)
+        \bitbox{32}{next\_imm}
+    \end{bytefield}
+    \caption{Extended 128-bit instruction encoding.}
+    \label{fig:extended-instruction-encoding}
+\end{figure}
+
+Figure \ref{fig:instruction-encoding} shows the encoding of 64 bit instructions.
+The various field are the following:
+
+\begin{itemize}
+
+  \item \verb|opcode|: the operation to perform, encoded as a \textit{class}
+    part and a \textit{specific} part which identifies the instruction on the
+    class.
+
+  \item \verb|regs|: source and destination register numbers. Some instructions
+    might reuse this fields for other purposes.
+
+  \item \verb|offset|: signed integer offset used with pointer arithmetic, or
+    for other purposes.
+
+  \item \verb|imm|: signed integer immediate value.
+
+\end{itemize}
+
+Figure \ref{fig:extended-instruction-encoding} shows the encoding for extended
+128 bit instructions. Compared to 64 bit instructions, it has a \verb|reserved|
+32 bit field which is set to 0, and a \verb|next_imm| 32 bit field for a second
+signed integer immediate value.
 
 The BTF ISA supports atomic operations for load and store instructions, which
 ensure that the operation cannot be interrupted or corrupted by other accesses
 to the same memory region by another BPF program or other actors. Other than
-atomic \verb|ADD|, \verb|OR|, \verb|AND| and \verb XOR|, BPF provide \verb|XCHG|
+atomic \verb|ADD|, \verb|OR|, \verb|AND| and \verb|XOR|, BPF provide \verb|XCHG|
 for atomic exchange, and \verb|CMPXCHG| for atomic compare and exchange.
 
 A complete list of the encoding of each instruction is found in the RFC.
 
 \subsection*{Helper Functions}
 
+The RFC introduces the concept of \textit{helper functions} which provide
+functionalities implemented by the underlying platform. Notably, helper
+functions are not standardized by RFC9669, but they are documented in the Linux
+kernel, which will be discussed in a later chapter. To call an helper function,
+the jump instruction must be executed with its source register as $0x0$ or
+$0x2$, with a platform-specific \verb|ID| identifying a specific function.
+
 \subsection*{Maps}
+
+RFC9669 defines "maps" as shared memory regions accessible by BPF programs on
+some platforms. The particular semantics of a map are not defined by the
+standard. Linux supports many kinds of maps which implement various data
+structures such as hash maps, arrays, ring buffers etc which provide shared
+storage across userspace and kernelspace, and among multiple executions of the
+same eBPF program or multiple eBPF programs. Linux maps will be discussed later.
+
+The standard also defines "platform variables" which are memory regions
+identified by integer ids exposed by the runtime. They are different than maps
+as they are used directly by the program instead of going through helper
+functions, conceptually platform variables can be thought of as global
+variables.
 
 \subsection*{Compiler Support}
 
-Clang 11+ and GCC 12.1+ support compiling C to BPF bytecode. Atomic operations
+Clang 11+ and GCC 12.1+ support compiling C to BPF bytecode. Compilers for other
+languages also support the BPF ISA, such as the rust compiler. Atomic operations
 which map to atomic instructions can be specified with intrinsics.
 
 \section{Verifier}

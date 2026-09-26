@@ -150,8 +150,8 @@ to redefine the \verb|DECLARE_TRACE| macro in different ways to generate
 different code. This is also used in other parts of the kernel, namely "event
 tracing" which will be explained later in this section.
 
-Finally the developers can use the \verb|trace_sched_entry()| trigger the
-tracepoint. The callstack looks like this:
+Finally developers can use \verb|trace_sched_entry()| to trigger the tracepoint.
+The callstack looks like this:
 
 \begin{verbatim}
 trace_sched_entry(...)
@@ -165,8 +165,8 @@ In this particular case, instead of having a pointer to the callback function
 stored somewhere in the tracepoint structure which needs to be loaded from
 memory, a call to its address is directly patched where the \verb|static_call|
 call lives therefore removing one layer of indirection. There may be multiple
-callbacks registered, in this case the call will be patched to an iterator which
-simply loops over all registered callbacks and calls them.
+callbacks registered, in this case the call will be patched with an iterator
+which simply loops over all registered callbacks and calls them.
 
 Before calling the \verb|static_call|, a check is made to determine if the
 tracepoint is active or not by checking if the callback address is present. To
