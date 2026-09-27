@@ -174,9 +174,63 @@ Clang 11+ and GCC 12.1+ support compiling C to BPF bytecode. Compilers for other
 languages also support the BPF ISA, such as the rust compiler. Atomic operations
 which map to atomic instructions can be specified with intrinsics.
 
-\section{Verifier}
+\section{The verifier}
 
-TODO
+After loading and eBPF program, the BPF code in \textit{just in time} (JIT)
+compiled to native machine instructions to be executed as kernel code in a later
+moment. This would give eBPF programs the ability to run almost arbitrary code
+in kernelspace, with important security implications on confidentiality,
+integrity and availability. Without a proper security model, an eBPF program
+could potentially read or write arbitrary kernel memory (confidentiality and
+integrity issue) or invoke other kernel functions and alter the execution of the
+operating system to halt it (availability issue). For these reasons, the eBPF
+security model determines strict guardrails and limitations to what a program is
+allowed to do. The model discriminates a program as \textit{safe} if it meets
+all security requirements, or as \textit{unsafe} otherwise; the user can decide
+to disallow the loading of any unsafe programs, which is the default policy on
+most Linux distributions. This model is fundamental to the success and wide
+adoption of eBPF in production and security-critical environments. Other
+security considerations and policies will be discussed in a later section, such
+as user permissions and chain of trust. Notably, the safety requirements are not
+standardized and may change across kernel versions. The reason is that the eBPF
+ecosystem is rapidly evolving, hence putting effort in standardization is not
+practical or wanted in the current state.
+
+The following is a non-exhaustive list of security requirements for safe eBPF
+programs:
+
+\begin{itemize}
+
+  \item Programs must always terminate: no infinite loops or infinite recursion
+    is allowed (availability issue).
+
+  \item Programs cannot to read or write arbitrary memory (confidentiality,
+    integrity issue).
+
+  \item Network programs are not allowed to access memory outside of packet
+    bounds (confidentiality, integrity issue).
+
+  \item Programs are not allowed to deadlock (availability issue).
+
+  \item Programs are not allowed to read uninitialized memory (confidentiality
+    issue).
+
+\end{itemize}
+
+These requirements are checked at program load time instead of at runtime, to
+trade runtime performance penalties with load-time overhead. If a requirement
+cannot be fully checked at load-time, the eBPF program is rejected or a method
+to perform the checks dynamically is provided, although only for a limited set
+of functionalities (dynamic pointers). The program that performs these checks is
+known as the eBPF \textit{verifier}: given a BPF program, the output of the
+verifier will determine if the program is considered safe or not. Therefore, the
+verifier is a critical part of the eBPF architecture and its implementation has
+been widely scrutinized. Given the complexity of checking some of the
+requirements at load time, the verifier implementation is highly complex. Just
+the file \textit{\$LINUX/kernel/bpf/verifier.c}, which implements most of the
+logic, is about $20000$ lines of code long, although solutions to simplify and
+modularize it are being discussed by its developers.
+
 
 \section{Program Types}
 

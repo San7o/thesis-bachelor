@@ -264,6 +264,12 @@ TODO: show an example of C and BPF code.
 The verifier
 ------------
 
+Notes: ebpf runs in kernel space, which is quite dangerous. The code needs to be
+checked to ensure it meets some safety requirements. This is security model is
+fundamental to the eBPF architecture and is a critical piece that allows eBPF to
+be widely used and accepted in many, potentially security-critical,
+environments.
+
 Good list of safety requirements:
 
     https://docs.ebpf.io/linux/concepts/verifier/
@@ -289,10 +295,13 @@ Here is a non-exhaustive list of things that are not allowed to illustrate the p
 ```
 
 The verifier checks these requirements, so that the program can be executed
-without runtime checks which limits overhead.
+without runtime checks, trading runtime overhead with load-time overhead. If
+something cannot be checked at load-time, the eBPF architecture provides a way
+to perform the checking dynamically, although this is only done for a limited
+set of functionalities (dynamic pointers).
 
 What constituted a correct program that will not be rejected is intentionally
-not standardized. The Linux verifier is continuously changing
+not standardized. The Linux verifier is continuously changing.
 
 
 Great overview: https://www.spinics.net/lists/xdp-newbies/msg00185.html
@@ -310,7 +319,7 @@ stack.
 ```
 
 Each register can have a type. At the start, the only valid register with a type
-is r1 of type `PTR_TO_CTX`. Doing operations on the registers can modify their
+is `r1` of type `PTR_TO_CTX`. Doing operations on the registers can modify their
 type. For example, `PTR_TO_CTX + PTR_TO_CTX = SCALAR_TYPE` because pointer
 operations are not allowed.
 
@@ -339,6 +348,28 @@ Types are defined in `enum bpf_reg_type` (`include/linux/bpf.h`)
 - .. more
 
 ```
+
+enum bpf_reg_type {
+	NOT_INIT = 0,		 /* nothing was written into register */
+	SCALAR_VALUE,		 /* reg doesn't contain a valid pointer */
+	PTR_TO_CTX,		 /* reg points to bpf_context */
+	CONST_PTR_TO_MAP,	 /* reg points to struct bpf_map */
+	PTR_TO_MAP_VALUE,	 /* reg points to map element value */
+	PTR_TO_MAP_KEY,		 /* reg points to a map element key */
+	PTR_TO_STACK,		 /* reg == frame_pointer + offset */
+	PTR_TO_PACKET_META,	 /* skb->data - meta_len */
+	PTR_TO_PACKET,		 /* reg points to skb->data */
+	PTR_TO_PACKET_END,	 /* skb->data + headlen */
+	PTR_TO_FLOW_KEYS,	 /* reg points to bpf_flow_keys */
+	PTR_TO_SOCKET,		 /* reg points to struct bpf_sock */
+	PTR_TO_SOCK_COMMON,	 /* reg points to sock_common */
+  /* ... */
+}
+
+```
+
+
+```
 However, a pointer may be offset from this base (as a result of pointer
 arithmetic), and this is tracked in two parts: the ‘fixed offset’ and ‘variable
 offset’. The former is used when an exactly-known value (e.g. an immediate
@@ -346,10 +377,35 @@ operand) is added to a pointer, while the latter is used for values which are
 not exactly known. The variable offset is also used in SCALAR_VALUEs, to track
 the range of possible values in the register.
 ```
+|
+V
+During verification, the verifier tracks the range of values that a variable can
+hold with a technique called "value tracking". This ensures that, for example,
+the index that is used to access an array is always within bounds of the array.
 
-There is the concept of priuning where the verifier judges a state as OK of if
-it has seen it already before (both registers and stacks were already
-evaluated).
+```
+
+The verifier stores information on possible values in the bpf_reg_state
+structure, which tracks two related kinds of information. The first is "known
+bits", which uses a mask to indicate when individual bits of the value are known
+exactly: 
+
+struct tnum {
+	u64 value;
+	u64 mask;
+};
+
+/* ... */
+
+```
+
+There is the concept of pruning where the verifier judges a state as OK if it
+has seen it already before (registers, stacks, ranges, types state was already
+verified). The state is saved and check at some pruning points that are marked
+at the start of verification, such as before and after conditional branches.
+
+There is a concept of "dead registers":
+https://www.youtube.com/watch?v=EoEBkFJ3St4
 
 ---
 
@@ -493,6 +549,11 @@ The JIT is not particularly emotional.
 
 A note about loops, you can unroll the loop or use the helper functions. The
 modern verifier actually supports bounded loops.
+
+There are efforts to modularize the verifier, to potentially port it to other
+operating systems or to make it so that you can update just the verifier without
+updating the entire kernel for stable releases. More info here:
+https://lwn.net/Articles/1016853/
 
 Program Types
 -------------
