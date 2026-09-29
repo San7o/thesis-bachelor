@@ -627,7 +627,7 @@ following logic:
 \end{itemize}
 
 A kretprobe allows the user do register a callback that gets executed when the
-function returns. Underneath, the kretprobe registers a kprobe
+function returns. To implement this, the kretprobe registers a kprobe
 \verb|pre_handler_kretprobe| that changes the return address when the function
 is entered. The return address is set to a trampoline function. On arm, this
 function triggers a breakpoiont exception, which eventually calls

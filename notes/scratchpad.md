@@ -1350,7 +1350,7 @@ variable called `current_kprobe` and `kprobe_ctrlblk` and does the following:
   place (just after the probed instruction).
 
 A kretprobe allows the user do register a callback that gets executed when the
-function returns. Underneath, the kretprobe registers a kprobe
+function returns. Under the hood, the kretprobe registers a kprobe
 `pre_handler_kretprobe` that changes the return address when the function is
 entered. The return address is set to a trampoline function. On arm, this
 function triggers a breakpoiont exception, which eventually calls

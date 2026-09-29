@@ -38,10 +38,8 @@ in prodicer-consimer mode, then the producer fails to write, otherwise in
 overwrite mode it overwrite the data.
 
 The design of the ring buffer needs to meet specific requirements because trace
-events are expected to be originated from anywhere and at anytime, unless
-specifically disabled such on the tracing infrastructure itself to avoid
-infinite recursion, and at high frequency. Key requirements are, but not limited
-to, the following:
+events are expected to be originated in many contexts and at high frequency. Key
+requirements are, but not limited to, the following:
 
 \begin{itemize}
 
@@ -195,7 +193,7 @@ the highest priority task to get scheduled after it has been woken up.
 \subsubsection*{Static function tracing}
 
 To support tracing functions enter and exit events, ftrace implements a system
-to instrument any function in order to alter the execution and log the event.
+to instrument any function in order to alter its execution and trace the event.
 For clarity, the following section will use the term \textit{trace} or
 \textit{tracing} function to refer to the function that performs the writing of
 the event onto the ftrace ringbuffer, and the \textit{traced} function to the
@@ -349,7 +347,7 @@ some_kernel_func:
 
 \subsubsection*{The tracefs filesystem}
 
-The tracefs subsystem needs to provide some way for the user to interact with
+The ftrace subsystem needs to provide an interface for the user to interact with
 it. This is done through the \textit{tracefs} filesystem. Compared to other user
 interfaces like systemcalls and ioctls, many Linux kernel developers prefer
 custom filesystems or custom entries in an already existing filesystem as a
@@ -505,16 +503,18 @@ checks, as described in the systemcall manual page.
 
 \subsection{Others}
 
-There are some vendor specific systems and audit.
-
-There are some out of tree systems:
-
-  - systemtap
-  - LTTng
-  - ktap
-  - dtrace4linux
-  - DTrace
-  - sysdig
-  - ...
-
 TODO
+
+There are some vendor specific systems.
+
+\begin{itemize}
+
+  \item audit
+  \item systemtap
+  \item LTTng
+  \item ktap
+  \item dtrace4linux
+  \item DTrace
+  \item sysdig
+
+\end{itemize}

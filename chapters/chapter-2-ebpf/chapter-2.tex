@@ -8,21 +8,21 @@ TODO
 
 eBPF programs are written in the eBPF \textit{instruction set architecture}
 (ISA), often referred to simply as BPF ISA. The ISA defines the set of
-instructions that an eBPF program can use, and are expected to be available from
-an eBPF runtime. A compiler may be used to generate the BPF instructions from an
-higher-level language such as C or Rust to make the development of eBPF program
-easier for developers.
+instructions that an eBPF program uses, and that are expected to be available
+from an eBPF runtime. A compiler may be used to generate the BPF instructions
+from an higher-level language such as C or Rust to make the development of eBPF
+program easier for developers.
 
-Standardizing the BPF ISA is significant to allow compiler developers, tools
-developers, eBPF runtime developers and ASIC designers to agree to a common
-reference. The formal IETF standardization effort was started from earlier
-drafts in October 2023 with RFC 9669; the RFC was finally standardized one year
-later and updated multiple times since the first version. All the information
-presented in this section are referring to the RFC as last updated in 20 May
-2026.
+Standardizing the BPF ISA is significantly important to allow compiler
+developers, tools developers, eBPF runtime developers and ASIC designers to
+agree to a common reference. The formal IETF standardization effort was started
+from earlier drafts in October 2023 with RFC 9669; the RFC was finally
+standardized one year later and updated multiple times since the first version.
+All the information presented in this section are referring to the RFC as last
+updated in 20 May 2026.
 
 Controversially, the RFC does not standardize the platform-specific application
-binary interface (ABI) because a common consensus was not reached and it was
+binary interface (ABI) because a common consensus was not reached, hence it was
 preferred to be left out of the standard. This includes various details such as:
 which registers are saved across a call, which registers contain the frame
 pointer, how large the stack is, and other specifics. Further standardization is
@@ -132,17 +132,20 @@ The various field are the following:
 \end{itemize}
 
 Figure \ref{fig:extended-instruction-encoding} shows the encoding for extended
-128 bit instructions. Compared to 64 bit instructions, it has a \verb|reserved|
+128 bit instructions. Compared to 64 bit instructions, it adds a \verb|reserved|
 32 bit field which is set to 0, and a \verb|next_imm| 32 bit field for a second
 signed integer immediate value.
 
-The BTF ISA supports atomic operations for load and store instructions, which
-ensure that the operation cannot be interrupted or corrupted by other accesses
-to the same memory region by another BPF program or other actors. Other than
-atomic \verb|ADD|, \verb|OR|, \verb|AND| and \verb|XOR|, BPF provide \verb|XCHG|
-for atomic exchange, and \verb|CMPXCHG| for atomic compare and exchange.
-
-A complete list of the encoding of each instruction is found in the RFC.
+The instruction set is a reduced one in the number of instruction, resembling
+RISC-V. It has various instruction classes such as arithmetic operations
+\verb|ADD| and \verb|MUL|, jump instructions \verb|JMP| and \verb|JEQ|, load and
+store from memory, etc. Additionally, the BTF ISA supports atomic operations for
+load and store instructions, which ensure that the operation cannot be
+interrupted or corrupted by other accesses to the same memory region by another
+BPF program or other actors. Other than atomic \verb|ADD|, \verb|OR|, \verb|AND|
+and \verb|XOR|, BPF provides \verb|XCHG| for atomic exchange, and \verb|CMPXCHG|
+for atomic compare and exchange. A complete list of the encoding of each
+instruction is found in the RFC.
 
 \subsection*{Helper Functions}
 
@@ -153,7 +156,7 @@ kernel, which will be discussed in a later chapter. To call an helper function,
 the jump instruction must be executed with its source register as $0x0$ or
 $0x2$, with a platform-specific \verb|ID| identifying a specific function.
 
-\subsection*{Maps}
+\subsection*{Maps and platform variables}
 
 RFC9669 defines "maps" as shared memory regions accessible by BPF programs on
 some platforms. The particular semantics of a map are not defined by the
@@ -176,7 +179,9 @@ which map to atomic instructions can be specified with intrinsics.
 
 \section{The verifier}
 
-After loading and eBPF program, the BPF code in \textit{just in time} (JIT)
+% Safe and Unsafe programs
+
+After loading and eBPF program, the BPF code is \textit{just in time} (JIT)
 compiled to native machine instructions to be executed as kernel code in a later
 moment. This would give eBPF programs the ability to run almost arbitrary code
 in kernelspace, with important security implications on confidentiality,
@@ -191,10 +196,9 @@ to disallow the loading of any unsafe programs, which is the default policy on
 most Linux distributions. This model is fundamental to the success and wide
 adoption of eBPF in production and security-critical environments. Other
 security considerations and policies will be discussed in a later section, such
-as user permissions and chain of trust. Notably, the safety requirements are not
-standardized and may change across kernel versions. The reason is that the eBPF
-ecosystem is rapidly evolving, hence putting effort in standardization is not
-practical or wanted in the current state.
+as user permissions and chain of trust.
+
+% Security requirements
 
 The following is a non-exhaustive list of security requirements for safe eBPF
 programs:
@@ -217,41 +221,264 @@ programs:
 
 \end{itemize}
 
-These requirements are checked at program load time instead of at runtime, to
-trade runtime performance penalties with load-time overhead. If a requirement
-cannot be fully checked at load-time, the eBPF program is rejected or a method
-to perform the checks dynamically is provided, although only for a limited set
-of functionalities (dynamic pointers). The program that performs these checks is
-known as the eBPF \textit{verifier}: given a BPF program, the output of the
-verifier will determine if the program is considered safe or not. Therefore, the
-verifier is a critical part of the eBPF architecture and its implementation has
-been widely scrutinized. Given the complexity of checking some of the
-requirements at load time, the verifier implementation is highly complex. Just
-the file \textit{\$LINUX/kernel/bpf/verifier.c}, which implements most of the
-logic, is about $20000$ lines of code long, although solutions to simplify and
-modularize it are being discussed by its developers.
+Notably, the safety requirements are not standardized and may change across
+kernel versions. The reason is that the eBPF ecosystem is rapidly evolving,
+hence putting effort in standardization is not practical or wanted at the
+current state.
 
+% Verifier introduction
+
+The requirements are checked at program load time instead of at runtime, to
+trade runtime performance penalties with load-time overhead. If a requirement
+cannot be fully checked at load-time, then the eBPF program is rejected or a
+method to perform the checks dynamically is provided, although only for a
+limited set of functionalities (dynamic pointers). The program that checks the
+requirements is known as the eBPF \textit{verifier}: given a BPF program, the
+output of the verifier will determine if the program is considered safe or not.
+Therefore, the verifier is a critical part of the eBPF architecture and its
+implementation has been widely scrutinized. Given the complexity of checking
+some of the requirements at load time, the verifier implementation is highly
+complex. Just the file \textit{\$LINUX/kernel/bpf/verifier.c}, which implements
+most of the logic, is about $20000$ lines of code long, although solutions to
+simplify and modularize it are being discussed by its developers.
+
+\subsection*{Verifier implementation}
+
+The verifier implementation can be divided in two separate moments. First, it
+builds a control flow graph of the program, looks for unreachable instructions
+and identifies back-edges (loops) among other correctness checks. Second, it
+descends every possible execution path in the graph from the first instruction
+and looks for unsafe operations, such as out of bounds array accesses and
+others. It does so by simulating the execution and keeping track of the state of
+each register and the range of possible values it can hold (\textit{value
+tracking}). If, during the simulation, a state that was already verified is
+encountered during a backward jump, then the verifier considers this path as
+safe and does not re-simulate the code again (\textit{pruning}) which greatly
+speeds up verification. If any of the safety requirements are not met in any
+particular state, then the program is rejected. A more in depth look is now
+provided.
+
+% first half
+
+A program's verification starts in \verb|bpf_check()| after the \verb|bpf()|
+systemcall is executed with the \verb|BPF_PROG_LOAD| command. Upon verification
+entry, the verifier allocates an environment structure of type \verb|struct bpf_verifier_env|.
+The environment holds all the state of the verifier for a
+particular program, such as jump history, register states (\verb|struct bpf_reg_state|)
+and the history of previously explored states, among other information.
+Additionally, it contains a log buffer of type \verb|struct bpf_verifier_log|
+which logs the state of the program after each instruction;
+this is particularly useful to debug verification issues. Since the verification
+environment is allocated per-verification, multiple verifications on different
+programs can happen simultaneously. Parallel verifications are allowed only if
+the program's token (see later) has the \verb|CAP_BPF| capability, since
+unprivileged users could exhaust kernel memory and degrade performance by
+requesting many verifications. A token is a delegation mechanism where a
+privilege process can transfer capabilities to an unprivileged one via a token,
+which is then passed to the eBPF program. This will be discussed more in a
+following chapter.
+
+After some initializations, the verifier proceeds to perform several checks and
+compute various values and structures in the context. Some of these operations
+are reported below:
+
+\begin{itemize}
+
+  %\item \verb|bpf_check_btf_info_early()|
+
+  %\item \verb|add_subprog_and_kfunc()|
+
+    \item \verb|check_subprogs()|: check that all jumps are within the same
+      subprogram and all subprograms end (a program can contain multiple
+      subprograms).
+
+  %\item \verb|bpf_check_btf_info()|
+
+    \item \verb|check_and_resolve_insns()|: check that instructions are valid,
+      replace map IDs with actual map pointers
+
+  %\item \verb|bpf_prog_is_offloaded()| which calls
+  %   \verb|bpf_prog_offload_verifier_prep()|
+
+    \item \verb|bpf_check_cfg()|:  a non-recursive depth-first-search to detect
+      loops in the BPF program. Each instruction, which is represented as a
+      \textit{vertex} in a directed graph, can have either a
+      \textit{discovered}, \textit{explored}, \textit{fallthrough} or
+      \textit{branch} label. The difference between discovered and explored is
+      that a discovered instruction did not check all the edges yet, while an
+      explored one was fully checked. Each \textit{edge} can either be
+      discovered or not. While traversing the graph, the verifier assigns these
+      labels to the instructions. If the DAG explores any instruction already
+      marked as discovered, a back edge is detected and annotated. This
+      information is used during emulation to avoid emulating the entire loop
+      with a technique knows as \textit{pruning} which will be explained later.
+
+  %\item \verb|bpf_compute_postorder()|
+
+  %\item \verb|bpf_stack_liveness_init()|
+
+  %\item \verb|check_attach_btf_id()|
+
+  %\item \verb|bpf_compute_const_regs()|
+
+    \item \verb|bpf_prune_dead_branches()|: rewrite conditional branches that
+      have constant outcomes into unconditional jumps, so that dead code is not
+      checked.
+
+    \item \verb|sort_subprogs_topo()|: sort the subprograms topologically
+
+    \item \verb|bpf_compute_scc()|: : Use a non-recursive adaptation of Tarjan's
+      algorithm for strongly connected components computation.
+
+
+  %\item \verb|bpf_compute_live_registers()|
+
+  %\item \verb|mark_fastcall_patterns()|
+
+
+\end{itemize}
+
+% second half
+
+The verification proceeds to the next major phase: program simulation. The
+simulation descends all possible paths of the program to check for correctness.
+During the simulation, each register may have a type assigned to it. Types
+provide key information about the type a register holds to help the verifier
+make certain decisions; for example, load and store instructions are allowed
+only with registers of type \verb|PTR_TO_CTX|, \verb|PTR_TO_MAP| and
+\verb|PTR_TO_STACK|. Performing operations on registers may modify their type.
+
+The set of available types is defined in \verb|enum bpf_reg_type| present in
+\textit{\$LINUX/include/linux/bpf.h}. The following is an extract of the enum
+for context:
+
+\begin{verbatim}
+enum bpf_reg_type {
+  NOT_INIT = 0,     /* nothing was written into register */
+  SCALAR_VALUE,     /* reg doesn't contain a valid pointer */
+  PTR_TO_CTX,     /* reg points to bpf_context */
+  CONST_PTR_TO_MAP,   /* reg points to struct bpf_map */
+  PTR_TO_MAP_VALUE,   /* reg points to map element value */
+  PTR_TO_MAP_KEY,     /* reg points to a map element key */
+  PTR_TO_STACK,     /* reg == frame_pointer + offset */
+  PTR_TO_PACKET_META,   /* skb->data - meta_len */
+  PTR_TO_PACKET,     /* reg points to skb->data */
+  PTR_TO_PACKET_END,   /* skb->data + headlen */
+  PTR_TO_FLOW_KEYS,   /* reg points to bpf_flow_keys */
+  PTR_TO_SOCKET,     /* reg points to struct bpf_sock */
+  PTR_TO_SOCK_COMMON,   /* reg points to sock_common */
+  /* ... */
+}
+\end{verbatim}
+
+% range analsyis
+
+A powerful feature of the verifier is an abstract interpretation technique known
+as \textit{range analysis} \cite{cousot1977abstract}. For each registers, the
+verifier keeps track of the range of its possible values (minimum and maximum).
+This is important to verify bounded accesses to arrays and other checks. For
+example, consider the following C code:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+unsigned int buff[100];
+unsigned int i, x, y; /* initialized somewhere randomly */
+
+if (i < 10) {
+  x = buff[i];   /* OK, i is within [0, 10) */
+} else {
+  y = buff[i];   /* Rejected, i is out of bounds [0, UINT_MAX) */
+}
+\end{Verbatim}
+
+On line 1, a buffer with 10 elements is created. Every time the buffer is
+accessed, the verifier will check that the index used, $i$ in this case, is
+always in bounds my tracking the range of values in the register that stores its
+value. If the simulation takes the code path where the $if$ statement on line 4
+is evaluated to true, then value that $i$ holds must have an upper limit of 10
+because of the condition in the $if$ statement. If the verifier cannot ensure
+that $i$ does not hold a value smaller than the size of the buffer, then the
+program is rejected as shown on line 7. The implementation of range analysis has
+been formally verified by \cite{vishwanathan2023verifying}
+
+Additionally, the verifier knows which offsets inside structs can be accessed.
+For example, when evaluating the instruction $bpf\_ld\ R0 = *(u32 *)(R6 + 8)$, a
+check will be performed to ensure that the address $R6 + 8$ can be loaded, and
+if $R6$ is of type \verb|PTR_TO_STACK| then an additional check will be made to
+ensure that this address is within stack bounds $[-MAX\_BPF\_STACK, 0)$. It
+would also be checked that such stack location was written to previously so that
+it would be uninitialized.
+
+The simulation begins with \verb|do_check_main()|. At the very start, the only
+valid register to be accessed is \verb|R1| of type \verb|PTR_TO_CTX| which can
+be used to read a \verb|struct bpf_context| containing various information about
+the program depending on the program type. The verifier keeps the state of the
+simulation by allocating a \verb|struct bpf_verifier_state| and \verb|struct bpf_func_state|.
+It proceeds to call \verb|do_check| which calls
+\verb|do_check_insn| for each instruction of the program; this performs all
+checks for an instruction, such as bound checks and type compatibility checks.
+While iterating over all the instructions, the verifier keeps a stack of states:
+whenever it encounters a conditional jump, it pushes a new state in the stack,
+and when an exit condition is reached, the top state is popped and simulated,
+until all states are checked (the stack is empty). If all checks were
+successful, the verifier calls \verb|do_check_subprogs()| which lazily verifies
+all global functions. This is necessary because, during verification, all
+functions are assumed to be already verified successfully and checked for
+signature match only.
+
+% pruning
+
+Some states are saved for the entire verification, for example when performing a
+jump to a previous instruction indentified by a back-edge during the initial
+phase of the verifier. This is used for an optimization called \textit{pruning}:
+if the current state of the verification was already visited and verified, then
+the verifier prunes the current state, meaning that it considers this execution
+path as verified and proceeds to pop the stack to simulate other branches. This
+greatly speeds up verification time since some "while" or "for" loops can be
+fully pruned instead of emulating every cycle.
+
+After successful verification, the kernel finally proceeds to JIT compile the
+program into native assembly. The call stack looks like the following:
+
+\begin{verbatim}
+bpf_check
+  __bpf_prog_select_runtime
+    bpf_prog_jit_compile
+      bpf_int_jit_compile (arch/x86/net/bpf_jit_comp.c)
+        do_jit
+\end{verbatim}
 
 \section{Program Types}
 
 TODO
 
+Status: done researching this section, needs to be written
+
 \section{Helper functions}
 
 TODO
+
+Status: done researching this section, needs to be written
 
 \section{Maps}
 
 TODO
 
+Status: done researching this section, needs to be written
+
 \section{BTF and CO-RE}
 
 TODO
+
+Status: done researching this section, needs to be written
 
 \section{Security Considerations}
 
 TODO
 
+Status: done researching this section, needs to be written
+
 \section{Use Cases and modern ecosystem}
 
 TODO
+
+Status: done researching this section, needs to be written

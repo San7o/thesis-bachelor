@@ -318,7 +318,7 @@ simulates execution of every insn and observes the state change of registers and
 stack.
 ```
 
-Each register can have a type. At the start, the only valid register with a type
+Each register has a type. At the start, the only valid register with a type
 is `r1` of type `PTR_TO_CTX`. Doing operations on the registers can modify their
 type. For example, `PTR_TO_CTX + PTR_TO_CTX = SCALAR_TYPE` because pointer
 operations are not allowed.
@@ -326,9 +326,9 @@ operations are not allowed.
 Load / store instructions are allowed only with registers of type `PTR_TO_CTX`,
 `PTR_TO_MAP`, `PTR_TO_STACK`.
 
-The verifier also know which offsets inside structs can be accessed, for example
-it will check that we can access `R6 + 8` in `bpf_ld R0 = *(u32 *)(R6 + 8)`. if
-`R6=PTR_TO_STACK` it will check that this address is within stack bounds
+The verifier also knows which offsets inside structs can be accessed, for
+example it will check that we can access `R6 + 8` in `bpf_ld R0 = *(u32 *)(R6 +
+8)`. if `R6=PTR_TO_STACK` it will check that this address is within stack bounds
 `[-MAX_BPF_STACK, 0)`, which is not in this example. It also checks that the
 stack location was written to previously.
 
@@ -426,11 +426,6 @@ could exhaust kernel memory. A token is a delegation mechanism where a privilege
 process can pass capabilities to an unprivileged one via a token, each program
 has a token. This will be discussed more in the Security Considerations chapter.
 
-Some parts of the verifier have been formally verified to be sound, in
-particular value tracking
-(https://people.cs.rutgers.edu/~sn349/papers/agni-cav2023.pdf). This paper also
-has some good explaination about abstract interpretation that I should include.
-
 The verifier proceeds to perform various calculations and checks:
 
 - DAG check: this check disallows loops and unreachable code
@@ -508,7 +503,9 @@ procedure DFS-iterative(G,v):
   interpretation" (https://dl.acm.org/doi/10.1145/512950.512973).
   - Pruning: instead of walking all possible paths through the program, for each
     branch the verifier looks at all previsously analized states. If any of them
-    match the current one, then the verifier skips that branch. Functions:
+    match the current one, then the verifier skips that branch.
+
+  Functions:
   - `bpf_prune_dead_branches`: rewrites conditional branches that have constant
     outcomes into unconditional jumps, so that dead code is not checked
   - `bpf_compute_scc` (strongly connected components): Uses a non-recursive
@@ -523,6 +520,10 @@ procedure DFS-iterative(G,v):
     that was already visited, it prunes that (considers it verified and
     continues). `do_check_insns` does checks based on the instruction, for
     example bound checks, making sure types are compatible, etc...
+
+
+    TODO: pruning
+    TODO: range analysis
 
     TODO: show a picture of how a branch pushes to the states stack
 
@@ -546,6 +547,11 @@ bpf_check
 ```
 
 The JIT is not particularly emotional.
+
+Some parts of the verifier have been formally verified to be sound, in
+particular value tracking
+(https://people.cs.rutgers.edu/~sn349/papers/agni-cav2023.pdf). This paper also
+has some good explaination about abstract interpretation that I should include.
 
 A note about loops, you can unroll the loop or use the helper functions. The
 modern verifier actually supports bounded loops.
