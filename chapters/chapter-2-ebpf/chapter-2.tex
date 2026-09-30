@@ -8,10 +8,10 @@ TODO
 
 eBPF programs are written in the eBPF \textit{instruction set architecture}
 (ISA), often referred to simply as BPF ISA. The ISA defines the set of
-instructions that an eBPF program uses, and that are expected to be available
-from an eBPF runtime. A compiler may be used to generate the BPF instructions
-from an higher-level language such as C or Rust to make the development of eBPF
-program easier for developers.
+instructions that an eBPF program uses and that are expected to be supported by
+an eBPF runtime. A compiler may be used to generate the BPF instructions from an
+higher-level language such as C or Rust to make the development of eBPF program
+easier for developers.
 
 Standardizing the BPF ISA is significantly important to allow compiler
 developers, tools developers, eBPF runtime developers and ASIC designers to
@@ -449,9 +449,102 @@ bpf_check
 
 \section{Program Types}
 
+Each eBPF program is of a certain type, which determines what resources and
+functions the program has access to, and when the program is executed. The
+possible types are enumerated in \verb|enum bpf_prog_type| in
+\textit{\$LINUX/include/uapi/linux/bpf.h} which is reported below:
+
+\begin{verbatim}
+enum bpf_prog_type {
+  BPF_PROG_TYPE_UNSPEC,
+  BPF_PROG_TYPE_SOCKET_FILTER,
+  BPF_PROG_TYPE_KPROBE,
+  BPF_PROG_TYPE_SCHED_CLS,
+  BPF_PROG_TYPE_SCHED_ACT,
+  BPF_PROG_TYPE_TRACEPOINT,
+  BPF_PROG_TYPE_XDP,
+  BPF_PROG_TYPE_PERF_EVENT,
+  BPF_PROG_TYPE_CGROUP_SKB,
+  BPF_PROG_TYPE_CGROUP_SOCK,
+  BPF_PROG_TYPE_LWT_IN,
+  BPF_PROG_TYPE_LWT_OUT,
+  BPF_PROG_TYPE_LWT_XMIT,
+  BPF_PROG_TYPE_SOCK_OPS,
+  BPF_PROG_TYPE_SK_SKB,
+  BPF_PROG_TYPE_CGROUP_DEVICE,
+  BPF_PROG_TYPE_SK_MSG,
+  BPF_PROG_TYPE_RAW_TRACEPOINT,
+  BPF_PROG_TYPE_CGROUP_SOCK_ADDR,
+  BPF_PROG_TYPE_LWT_SEG6LOCAL,
+  BPF_PROG_TYPE_LIRC_MODE2,
+  BPF_PROG_TYPE_SK_REUSEPORT,
+  BPF_PROG_TYPE_FLOW_DISSECTOR,
+  BPF_PROG_TYPE_CGROUP_SYSCTL,
+  BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE,
+  BPF_PROG_TYPE_CGROUP_SOCKOPT,
+  BPF_PROG_TYPE_TRACING,
+  BPF_PROG_TYPE_STRUCT_OPS,
+  BPF_PROG_TYPE_EXT,
+  BPF_PROG_TYPE_LSM,
+  BPF_PROG_TYPE_SK_LOOKUP,
+  BPF_PROG_TYPE_SYSCALL, /* a program that can execute syscalls */
+  BPF_PROG_TYPE_NETFILTER,
+  __MAX_BPF_PROG_TYPE
+};
+\end{verbatim}
+
+By convention, loaders based on \textit{libbpf} specify the type of the program
+by putting the program's binary code in a specific ELF section of the binary,
+which depends upon the program type. For example, a program of type
+\verb|BPF_PROG_TYPE_CGROUP_DEVICE| must be put in the \verb|cgroup/dev| ELF
+section, and a program of type \verb|BPF_PROG_TYPE_CGROUP_SKB| is put in the
+\verb|cgroup/skb| ELF section. This trick allows to specify multiple programs of
+different types in the same ELF binary, and it is used by libbpf to provide a
+set of convenient APIs for the eBPF program developer.
+
+After loading, verifying and JIT compiling the program, it needs to be attached
+to some event or other object; the attach point depends on the type of the
+program. For example, the program will be attached to a perf event if the
+program type is \verb|BPF_PROG_TYPE_PERF_EVENT| or to a function through a
+kprobe if the program type is \verb|BPF_PROG_TYPE_KPROBE|. The list of possible
+attachment is enumerated in \verb|enum enum bpf_attach_type|. When attaching the
+program, an object known as a \textit{link} is created which identifies the
+relationship between a program and its attachment point, and manages its
+lifetime. The execution of the program depends on its attachment point, for
+example a program that is attached to a tracepoint will be executed every time
+that tracepoint is fired. The program will also be able to access the
+information of the tracepoint if it is attached to it, so that it can implement
+specific custom logic to react to the event.
+
+To create certain types of attachments, special trampolines are used, which rely
+on the dynamic ftrace infrastructure as explained in a previous chapter, to
+allow kernel code to call into BPF programs with practically zero overhead using
+code patching. Such special attachments are \verb|BPF_TRACE_FENTRY|,
+\verb|BPF_TRACE_FEXIT|, \verb|BPF_MODIFY_RETURN|, \verb|BPF_TRACE_FSESSION|,
+\verb|BPF_TRACE_FENTRY_MULTI|, \verb|BPF_TRACE_FEXIT_MULTI|,
+\verb|BPF_TRACE_FSESSIONS_MULTI|. When an eBPF program that uses a trampoline is
+linked, the function \verb|bpf_trampoline_update()| is called which creates a
+page via \verb|arch_prepare_bpf_trampoline()|, setting up the stack environment
+for the eBPF program including its arguments, its execution, restoring registers
+and finally returning to the target function.
+
+Some example eBPF program types are now analyzed.
+
+\subsection*{BPF\_PROG\_TYPE\_KPROBE}
+
 TODO
 
-Status: done researching this section, needs to be written
+\subsection*{BPF\_PROG\_TYPE\_XDP}
+
+TODO
+
+\subsection*{BPF\_PROG\_TYPE\_LSM}
+
+TODO
+
+\subsection*{BPF\_PROG\_TYPE\_STRUCT\_OPS}
+
+TODO
 
 \section{Helper functions}
 

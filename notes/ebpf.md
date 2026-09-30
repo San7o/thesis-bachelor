@@ -34,6 +34,10 @@ TODO: Lots of diagrams here:
 
     https://ebpf.io/what-is-ebpf/
 
+TODO: the systemcall
+
+TODO: libbpf
+
 Instruction Set
 ---------------
 
@@ -588,55 +592,6 @@ Programs can be attached to kprobes (`BPF_PROG_TYPE_KPROBE`), tracepoints
 the information given to the tracing instrumentation, the eBPF program can
 execute ad-hoc logic to react to the event.
 
-Other program types:
-
-BPF_PROG_TYPE_KPROBE
-^^^^^^^^^^^^^^^^^^^^
-
-Done impl (kivebpf)
-
-BPF_PROG_TYPE_XDP
-^^^^^^^^^^^^^^^^^
-
-Done test
-
-Indeed, in for the intel i40e driver with napi:
-
-```
-i40e_intr (interrupt)
-  -> napi_schedule_irqoff
-    -> __napi_schedule_irqoff
-      -> ____napi_schedule
-        -> list_add_tail
-
-softirq context, called from napi:
-
-__napi_busy_loop
-  -> napi_poll
-    -> __napi_poll
-      -> struct napi_struct->poll
-
-That function is implemented in the driver
-
-i40e_napi_poll
-  -> i40e_clean_rx_irq
-    -> i40e_run_xdp
-      -> bpf_prog_run_xdp
-```
-
-BPF_PROG_TYPE_LSM
-^^^^^^^^^^^^^^^^^
-
-Done
-
-It uses the hooks defined in `include/linux/lsm_hook_defs.h`. The kernel
-registers a trampoline to a NOP stub in the security module.
-
-BPF_PROG_TYPE_STRUCT_OPS
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-Done SCHED_EXT
-
 To register certain types of eBPF program, special trampolines are used, which
 are built on top of the dynamic ftrace infrastructure (knowing the address of
 the NOP area of a function) "to allow kernel code to call into BPF programs
@@ -714,6 +669,55 @@ The program type that have a trampoline are:
 		return false;
 	}
 ```
+
+Program types:
+
+BPF_PROG_TYPE_KPROBE
+^^^^^^^^^^^^^^^^^^^^
+
+Done impl (kivebpf)
+
+BPF_PROG_TYPE_XDP
+^^^^^^^^^^^^^^^^^
+
+Done test
+
+Indeed, in for the intel i40e driver with napi:
+
+```
+i40e_intr (interrupt)
+  -> napi_schedule_irqoff
+    -> __napi_schedule_irqoff
+      -> ____napi_schedule
+        -> list_add_tail
+
+softirq context, called from napi:
+
+__napi_busy_loop
+  -> napi_poll
+    -> __napi_poll
+      -> struct napi_struct->poll
+
+That function is implemented in the driver
+
+i40e_napi_poll
+  -> i40e_clean_rx_irq
+    -> i40e_run_xdp
+      -> bpf_prog_run_xdp
+```
+
+BPF_PROG_TYPE_LSM
+^^^^^^^^^^^^^^^^^
+
+Done
+
+It uses the hooks defined in `include/linux/lsm_hook_defs.h`. The kernel
+registers a trampoline to a NOP stub in the security module.
+
+BPF_PROG_TYPE_STRUCT_OPS
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Done SCHED_EXT
 
 Helper Functions
 ----------------
