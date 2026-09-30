@@ -66,7 +66,7 @@ Each line on the right corresponds to a BPF assembly instruction. The term
 \verb|w1|, \verb|w2| represent the first word of the register number 1 and 2
 respectively, and \verb|r10| is the full register number 10.
 
-\subsection*{Instructions and encoding}
+\subsection{Instructions and encoding}
 
 The standard specifies two instruction encodings: one using 64 bits and another
 one using 128 bits. Instructions are assigned to a named conformance group,
@@ -147,7 +147,7 @@ and \verb|XOR|, BPF provides \verb|XCHG| for atomic exchange, and \verb|CMPXCHG|
 for atomic compare and exchange. A complete list of the encoding of each
 instruction is found in the RFC.
 
-\subsection*{Helper Functions}
+\subsection{Helper Functions}
 
 The RFC introduces the concept of \textit{helper functions} which provide
 functionalities implemented by the underlying platform. Notably, helper
@@ -156,7 +156,7 @@ kernel, which will be discussed in a later chapter. To call an helper function,
 the jump instruction must be executed with its source register as $0x0$ or
 $0x2$, with a platform-specific \verb|ID| identifying a specific function.
 
-\subsection*{Maps and platform variables}
+\subsection{Maps and platform variables}
 
 RFC9669 defines "maps" as shared memory regions accessible by BPF programs on
 some platforms. The particular semantics of a map are not defined by the
@@ -171,7 +171,7 @@ as they are used directly by the program instead of going through helper
 functions, conceptually platform variables can be thought of as global
 variables.
 
-\subsection*{Compiler Support}
+\subsection{Compiler Support}
 
 Clang 11+ and GCC 12.1+ support compiling C to BPF bytecode. Compilers for other
 languages also support the BPF ISA, such as the rust compiler. Atomic operations
@@ -242,8 +242,6 @@ complex. Just the file \textit{\$LINUX/kernel/bpf/verifier.c}, which implements
 most of the logic, is about $20000$ lines of code long, although solutions to
 simplify and modularize it are being discussed by its developers.
 
-\subsection*{Verifier implementation}
-
 The verifier implementation can be divided in two separate moments. First, it
 builds a control flow graph of the program, looks for unreachable instructions
 and identifies back-edges (loops) among other correctness checks. Second, it
@@ -258,7 +256,7 @@ speeds up verification. If any of the safety requirements are not met in any
 particular state, then the program is rejected. A more in depth look is now
 provided.
 
-% first half
+\subsection{Initial checks and preparations}
 
 A program's verification starts in \verb|bpf_check()| after the \verb|bpf()|
 systemcall is executed with the \verb|BPF_PROG_LOAD| command. Upon verification
@@ -338,15 +336,15 @@ are reported below:
 
 \end{itemize}
 
-% second half
+\subsection{Register types}
 
-The verification proceeds to the next major phase: program simulation. The
-simulation descends all possible paths of the program to check for correctness.
-During the simulation, each register may have a type assigned to it. Types
-provide key information about the type a register holds to help the verifier
-make certain decisions; for example, load and store instructions are allowed
-only with registers of type \verb|PTR_TO_CTX|, \verb|PTR_TO_MAP| and
-\verb|PTR_TO_STACK|. Performing operations on registers may modify their type.
+To proceed with the next phase of verification, the verifier uses a system of
+\textit{register types}: during simulation, each register may have a type
+assigned to it. Types provide key information about the type a register holds to
+help the verifier make certain decisions. Performing operations on registers may
+modify their type, and some operations are not allowed wht certain types. For
+example, load and store instructions are allowed only with registers of type
+\verb|PTR_TO_CTX|, \verb|PTR_TO_MAP| and \verb|PTR_TO_STACK|.
 
 The set of available types is defined in \verb|enum bpf_reg_type| present in
 \textit{\$LINUX/include/linux/bpf.h}. The following is an extract of the enum
@@ -371,7 +369,29 @@ enum bpf_reg_type {
 }
 \end{verbatim}
 
-% range analsyis
+\subsection{Program simulation}
+
+The verification proceeds to the next major phase: program simulation. The
+simulation descends all possible paths of the program to check for correctness.
+
+The simulation begins with \verb|do_check_main()|. At the very start, the only
+valid register to be accessed is \verb|R1| of type \verb|PTR_TO_CTX| which can
+be used to read a \verb|struct bpf_context| containing various information about
+the program depending on the program type. The verifier keeps the state of the
+simulation by allocating a \verb|struct bpf_verifier_state| and \verb|struct bpf_func_state|.
+It proceeds to call \verb|do_check| which calls
+\verb|do_check_insn| for each instruction of the program; this performs all
+checks for an instruction, such as bound checks and type compatibility checks.
+While iterating over all the instructions, the verifier keeps a stack of states:
+whenever it encounters a conditional jump, it pushes a new state in the stack,
+and when an exit condition is reached, the top state is popped and simulated,
+until all states are checked (the stack is empty). If all checks were
+successful, the verifier calls \verb|do_check_subprogs()| which lazily verifies
+all global functions. This is necessary because, during verification, all
+functions are assumed to be already verified successfully and checked for
+signature match only.
+
+\subsection{Range analsyis}
 
 A powerful feature of the verifier is an abstract interpretation technique known
 as \textit{range analysis} \cite{cousot1977abstract}. For each registers, the
@@ -408,27 +428,10 @@ ensure that this address is within stack bounds $[-MAX\_BPF\_STACK, 0)$. It
 would also be checked that such stack location was written to previously so that
 it would be uninitialized.
 
-The simulation begins with \verb|do_check_main()|. At the very start, the only
-valid register to be accessed is \verb|R1| of type \verb|PTR_TO_CTX| which can
-be used to read a \verb|struct bpf_context| containing various information about
-the program depending on the program type. The verifier keeps the state of the
-simulation by allocating a \verb|struct bpf_verifier_state| and \verb|struct bpf_func_state|.
-It proceeds to call \verb|do_check| which calls
-\verb|do_check_insn| for each instruction of the program; this performs all
-checks for an instruction, such as bound checks and type compatibility checks.
-While iterating over all the instructions, the verifier keeps a stack of states:
-whenever it encounters a conditional jump, it pushes a new state in the stack,
-and when an exit condition is reached, the top state is popped and simulated,
-until all states are checked (the stack is empty). If all checks were
-successful, the verifier calls \verb|do_check_subprogs()| which lazily verifies
-all global functions. This is necessary because, during verification, all
-functions are assumed to be already verified successfully and checked for
-signature match only.
-
-% pruning
+\subsection{State pruning}
 
 Some states are saved for the entire verification, for example when performing a
-jump to a previous instruction indentified by a back-edge during the initial
+jump to a previous instruction identified by a back-edge during the initial
 phase of the verifier. This is used for an optimization called \textit{pruning}:
 if the current state of the verification was already visited and verified, then
 the verifier prunes the current state, meaning that it considers this execution
@@ -530,19 +533,19 @@ and finally returning to the target function.
 
 Some example eBPF program types are now analyzed.
 
-\subsection*{BPF\_PROG\_TYPE\_KPROBE}
+\subsection{BPF\_PROG\_TYPE\_KPROBE}
 
 TODO
 
-\subsection*{BPF\_PROG\_TYPE\_XDP}
+\subsection{BPF\_PROG\_TYPE\_XDP}
 
 TODO
 
-\subsection*{BPF\_PROG\_TYPE\_LSM}
+\subsection{BPF\_PROG\_TYPE\_LSM}
 
 TODO
 
-\subsection*{BPF\_PROG\_TYPE\_STRUCT\_OPS}
+\subsection{BPF\_PROG\_TYPE\_STRUCT\_OPS}
 
 TODO
 

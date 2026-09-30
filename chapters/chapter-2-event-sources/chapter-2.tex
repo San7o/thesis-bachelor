@@ -1,4 +1,5 @@
-\section{Event Sources}
+%\section{Event Sources}
+\chapter{Event Sources}
 
 The previous section explained various frameworks for supporting events traces
 and making them available to the user. This section discusses some types of
@@ -11,9 +12,9 @@ events. Static events are placed by kernel developers in pre-determined
 locations and statically compiled in the kernel. In contrast, dynamic events are
 registered during runtime and can be registered in non-predetermined locations.
 
-\subsection{Static Events}
+\section{Static Events}
 
-\subsubsection*{Tracepoints}
+\subsection{Tracepoints}
 
 A \textit{tracepoint} provides a way to call a function when the tracepoint is
 executed, which is referred to as a "callback". Tracepoints are placed all over
@@ -179,7 +180,7 @@ call. This decreases the runtime performance impact of a disabled tracepoint, as
 the only effective penalty is overall increased code section size due to the
 tracepoint generated functions.
 
-\subsubsection*{Event Tracing}
+\subsection{Event Tracing}
 
 A tracepoint provides an object which calls a callback function when triggered.
 Additional work is necessary to make this system interact with the rest of the
@@ -249,7 +250,7 @@ Since \verb|TRACE_EVENT| generates a lot of code and increases the size of the
 kernel binary, the macro \verb|DECLARE_EVENT_CLASS| and \verb|DEFINE_EVENT|
 should be used for tracepoints that share some code.
 
-\subsubsection*{Syscall Tracepoints}
+\subsection{Syscall Tracepoints}
 
 For various use cases, it may be useful for the user to trace accesses to
 systemcalls. For this reason, special tracepoints are placed specifically for
@@ -370,12 +371,12 @@ TRACE_EVENT_SYSCALL(sys_enter,
 This last trace event creates the actual tracepoint that logs all systemcalls,
 using the metadata registered from \verb|SYSCALL_DEFINEX| for printing.
 
-%\subsubsection*{User Statically-Defined Tracing}
+%\subsection{User Statically-Defined Tracing}
 %TODO
 
-\subsection{Dynamic Events}
+\section{Dynamic Events}
 
-\subsubsection*{Kprobes and Kretprobes}
+\subsection{Kprobes and Kretprobes}
 
 \textit{Kprobes} are events that can be dynamically placed almost anywhere on
 the kernel. They use code patching to replace any instruction with a proakpoint
@@ -637,16 +638,16 @@ probe.
 
 \input{chapters/chapter-1-tracing/figures/kprobe-execution-fig.tex}
 
-%\subsubsection*{Ftrace Tracers}
+%\subsection*{Ftrace Tracers}
 %TODO
-%\subsubsection*{Fprobe}
+%\subsection*{Fprobe}
 %TODO
-%\subsubsection*{Uprobes and Uretprobes}
+%\subsection*{Uprobes and Uretprobes}
 %TODO
-%\subsubsection*{Eprobes}
+%\subsection*{Eprobes}
 %TODO
 
-\subsection{Perf events}
+\section{Perf events}
 
 The perf subsystem had been described previously. This section will discuss how
 a perf event is registered and accessed from userspace.
