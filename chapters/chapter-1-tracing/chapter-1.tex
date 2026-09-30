@@ -1,97 +1,105 @@
 \chapter{Tracing frameworks}
 
-Tracing frameworks provide the internal infrastructure required to interface
-event sources and front ends. The Linux kernel provides multiple frameworks
-tailored to different use cases. A framework should support the registration of
-event sources, which can be categorized as either static or dynamic, to capture
-their side effects when such events are triggered. User-space interacts with a
-tracing frameworks through a well-defined stable user-space API, such as through
-a filesystem or a dedicated system call. A front-end provides a more convenient
-API to the user for managing event registration, de-registration and consuming
-its output.
-
-The Linux tracing infrastructure has greately evolved over the years, and
-continues to evolve rapidly driven mostly by an interest in low-overhead kernel
-observability from cloud providers and hyperscalers. There has been a shift from
-static tracing to dynamic tracing, to a fully programmable ecosystem.
-
-In this chapter we discuss various solutions the Linux kernel provides for
-tracing and monitoring.
+The term \textit{tracing framework} refers to a set of APIs and behaviours
+designed to interface event sources with other kernel objects and user
+front-ends. It is an infrastructural component because it provides the
+architecture upon which tracing happens. In general, a tracing framework should
+support the registration and de-registration of event sources, whether static or
+dynamic, enabling and disabling, and producing or consuming their side effects.
+Usually, user-space interacts with the functionalities exposed by a tracing
+framework through a well-defined stable user-space API, such as through a
+filesystem or a dedicated system call. Notably, there is no single, unified
+tracing framework on Linux for registering and accessing all kinds of events,
+but there are multiple solutions tailored to different use cases. The purpose of
+this chapter is to provide an overview of the design and implementation of the
+two major tracing frameworks present in Linux: \textit{ftrace} and
+\textit{perf}.
 
 \section{Ftrace}
 
-Ftrace is used to support the registration, deregistration, reading, writing and
-other operations on various types of trace events. It provides a \textit{Tracer}
-abstraction to manage a set of events in group, and a data structure to store
-and interact with all the traced data. It also provides other infrastructure for
-specific tracers, such as hooks to any kernel function and code patching
-routines.
+\textit{Ftrace} is a versatile tracing framework that supports registration,
+deregistration, reading, writing and other operations on various types of trace
+events. It defines a \textit{tracer} abstraction to manage a set of events in
+groups, and a \textit{global ftrace ring buffer} to produce and consume all the
+event data. Additionally, it implements functionalities used by many types of
+tracers and events, such as the registration of \textit{hooks} (altering a
+funciton's execution to jump to a callback) on most kernel functions and other
+code patching routines. Ftrace is most useful for tracing global events that
+happen on any CPU and by any process, although it can be configured to filter
+events with specific conditions, enabling ftrace to be adapted to various
+use-cases.
 
-\textit{Ftrace} was originally implemented in the Linux 2.6 kernel to support
-function tracing, that is, capturing information such as arguments and function
-name whenever a kernel function is entered or exited in real time. Overtime the
-same infrastructure was reused for other use cases, therefore the name "ftrace"
-does not retain any of its original meaning. For this reason, the term "function
-tracer" will be used to refer to the specific tracer used for functions, and
-"ftrace" for the wider infrastructure.
+Ftrace was originally implemented in the Linux $2.6$ kernel to support
+\textit{function tracing}, that is, capturing a funciton's execution data such
+as its arguments and name whenever the function is entered or exited, in real
+time. Over time, the same infrastructure was reused for other use cases and
+tracers, consequently the name "ftrace" does not retain any of its original
+meaning. For this reason, the term "function tracer" will be used to refer to
+the specific tracer used for functions, and "ftrace" for the wider
+infrastructure.
 
 \subsection{The ftrace global ring buffer}
 
-A core component of ftrace is its \textit{global ring buffer}, represented on
-its highest abstraction level by the \verb|struct trace_array| type, which
-provides an interface to write an event's data and consume it. It supports both
-a producer-consumer mode and an overwrite mode. The two modes are distinguished
-by how writers behaves when the buffer is full: in such case, if the buffer is
-in prodicer-consimer mode, then the producer fails to write, otherwise in
-overwrite mode it overwrite the data.
+A core component of ftrace is its \textit{global ring buffer}, managed at its
+highest abstraction level by the \verb|struct trace_array| type. It provides an
+interface to write data and consume it, supporting both a producer-consumer mode
+and an overwrite mode. The two modes are distinguished by how writers behaves
+when the buffer is full: in producer-consumer mode the producer fails to write,
+otherwise it overwrites the data.
 
-The design of the ring buffer needs to meet specific requirements because trace
-events are expected to be originated in many contexts and at high frequency. Key
-requirements are, but not limited to, the following:
+Since events are expected to happen at a high frequency and from many different
+execution contexts, the design of the ring buffer needs to meet specific
+requirements. These requirements include:
 
 \begin{itemize}
 
-  \item writers should be able to write from interruptable contexts with success
-    when interrupted.
+  \item Writers must handle reentrancy safely, ensuring successful execution
+    even when interrupted by hardware interrupts or non-maskable interrupts
+    (NMIs).
 
-  \item many writers and readers are expected, in multiple CPU cores.
+  \item The design must support high concurrency for multiple writers and
+    readers distributed across multiple CPU cores.
 
-  \item the synchronization overhead must be close to zero due to
-the potential high amount of concurrent writes from high frequency events.
+  \item Synchronization overhead must be minimized to efficiently handle a high
+volume of concurrent writes from high-frequency events.
 
 \end{itemize}
 
 The solution implemented in Linux in the file
 \verb|linux/kernel/trace/ring_buffer.c| fulfills all these requirements using a
-lockless design, for both reader-to-writer and writer-to-writer interactions.
-
-Some key design decisions are now briefly discussed.
+lockless design for both reader-to-writer and writer-to-writer interactions.
+Some key design decisions are briefly discussed.
 
 Each CPU uses its own per-CPU ringbuffer containing a doubly-linked list of
-pages; therefore writers on different CPUs do not need to synchronize among each
-other. In order to read a full trace in chronological order, a reader iterates
-over all the buffers using timestamp information to determine the order of
-events.
+pages; consequently, writers on different CPUs do not need to synchronize among
+each other. In order to read a full trace in chronological order, a reader
+iterates over all the per-CPU buffers using time information to determine the
+order of the events. Another key detail is to store the reader page externally
+to the ring buffer linked list: writers never interact with the reader page and
+readers swap the reader page via atomic operations so no lock is used on the
+same CPU ring buffer.
 
-To support preemption, writers use a \textit{reserve and commit} pattern where
-the writer first reserves allocation space in a per-CPU ring buffer, then it
-writes with exclusive access to that region, and finally commits the region. The
-commit will be in a pending state until all regions before it are also
-committed; therefore when a writer reserves a region but gets preempted by
-another writer, then the new writer will not have access to the reserved region
-and its changes will not get registered until the original writer completes.
-This mechanism ensures that a reader will advance only if all preempted writes
-are committed.
+\subsubsection*{Reserve and commit pattern}
+
+To support preemption, writers use a \textit{reserve and commit} pattern which
+defines three phases to perform a write: first the writer reserves allocation
+space in a per-CPU ring buffer, then it writes with exclusive access to that
+region, and finally commits the region. The commit will be in a pending state
+until all regions before it are also committed; therefore when a writer reserves
+a region but gets preempted by another writer, then the new writer will not have
+access to the reserved region and its changes will not get registered until the
+original writer completes. This mechanism ensures that readers only process
+fully committed entries.
 
 In C code, the commit pattern looks like the following function from
-\verb|linux/kernel/trace/trace_uprobe.c|, commented and simplified for
-readability:
+\textit{\$LINUX/linux/kernel/trace/ trace\_uprobe.c}, commented and simplified
+for readability:
 
-\begin{verbatim}
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
 static void __uprobe_trace_func(struct trace_uprobe *tu,
-				unsigned long func, struct pt_regs *regs,
-				struct uprobe_cpu_buffer *ucb,
-				struct trace_event_file *trace_file)
+        unsigned long func, struct pt_regs *regs,
+        struct uprobe_cpu_buffer *ucb,
+        struct trace_event_file *trace_file)
 {
   struct trace_event_buffer fbuffer;
   void *data;
@@ -110,69 +118,75 @@ static void __uprobe_trace_func(struct trace_uprobe *tu,
   /* Third, commit */
   trace_event_buffer_commit(&fbuffer);
 }
-\end{verbatim}
+\end{Verbatim}
 
-Another key detail is to have the reader page fully extern from the ring buffer;
-therefore, writers never interact with the reader page and readers swap the
-reader page via atomic operations so no lock is used on the same CPU ring
-buffer.
+The relevant interactions with the ring buffer are: the reservation on line
+$11$, the writing on line $18$ via a \verb|memcpy()| and the commit on line
+$21$.
+
+\subsubsection*{Trace sequences}
 
 Because string formatting is expensive, the event is stored in the ring buffer
-in binary form without any formatting for the end-user. When an end-user reads
-the ring buffer though the user-space API, the relevant contents of the ring
-buffer are copied to a temporary buffer (\verb|struct trace_seq|) where they are
-formatted with a printf-style function, \verb|trace_seq_vprintf|, and copied to
-the user's memory. Moving the formatting procedure to the reader improves the
-writer's latency which is critical for high frequency events.
+in binary form without any formatting. When an end-user reads the ring buffer
+though the user-space API, the relevant contents of the ring buffer are
+formatted with a printf-style function, \verb|trace_seq_vprintf()|, into a trace
+sequence of type \verb|struct trace_seq|. A trace sequence stores a pre
+allocated buffer of 8K bytes that can be written to and read from. After
+formatting, the data is copied from the trace sequence to user memory. Moving
+the formatting procedure to the reader improves the writer's latency which is
+critical for high frequency events.
 
 \subsection{The tracer struct}
 
-An important abstraction in ftrace is the \textit{Tracer} represented as the
-\verb|struct tracer| type. This is meant to provide a way for the end-user to
-enable or disable a set of trace events with specific formatting. Any tracer
+An important abstraction in ftrace is the \textit{tracer}, implemented as the
+\verb|struct tracer| type. This object provides an interface to enable or
+disable a set of trace events, with custom formatting if necessary. Any tracer
 implements a set of functions to be invoked during its lifetime, such as
-initialization, starting, stopping, reading, etc. An use case, for example,
-would be to trace all the functions executed, or to trace all context switches.
-The user interacts with the tracer, such as to change its execution state or
-output options, via the \textit{tracefs} filesystem API which will bee discussed
-later. Many tracers are available, but only one tracer can be enabled at a time.
+initialization, starting, stopping, reading, etc. An use case for a tracer would
+be, for example, to trace all functions executed, or to trace all context
+switches. The user interacts with the tracer via the \textit{tracefs} filesystem
+API which will bee discussed later. Many tracers are available, but only one
+tracer can be enabled at a time.
 
 The default tracer is the \textit{nop} tracer which is a "dummy" tracer that does
-not enable any event. The struct instantiation would look like this:
+not enable any event. The instantiation of such tracer looks like this:
 
-\begin{verbatim}
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
 /* Supported output options */
 enum {
-	TRACE_NOP_OPT_ACCEPT = 0x1,
-	TRACE_NOP_OPT_REFUSE = 0x2
+  TRACE_NOP_OPT_ACCEPT = 0x1,
+  TRACE_NOP_OPT_REFUSE = 0x2
 };
 
 /* Options for the tracer */
 static struct tracer_opt nop_opts[] = {
-	{ TRACER_OPT(test_nop_accept, TRACE_NOP_OPT_ACCEPT) },
-	{ TRACER_OPT(test_nop_refuse, TRACE_NOP_OPT_REFUSE) },
-	{ } /* Always set a last empty entry */
+  { TRACER_OPT(test_nop_accept, TRACE_NOP_OPT_ACCEPT) },
+  { TRACER_OPT(test_nop_refuse, TRACE_NOP_OPT_REFUSE) },
+  { } /* Always set a last empty entry */
 };
 
 static struct tracer_flags nop_flags = {
-	.val = 0, /* By default: all flags disabled */
-	.opts = nop_opts
+  .val = 0, /* By default: all flags disabled */
+  .opts = nop_opts
 };
 
 struct tracer nop_trace __read_mostly =
 {
-	.name		= "nop",
-	.init		= nop_trace_init,  /* dummy functions, do not do anything */
-	.reset		= nop_trace_reset,
-	.flags		= &nop_flags,
-	.set_flag	= nop_set_flag,
-	.allow_instances = true,
+  .name = "nop",
+  .init = nop_trace_init,  /* dummy functions, do not do anything */
+  .reset = nop_trace_reset,
+  .flags = &nop_flags,
+  .set_flag = nop_set_flag,
+  .allow_instances = true,
 };
-\end{verbatim}
+\end{Verbatim}
 
-Where the \verb|init| and \verb|reset| members are functions, which in this case
-do nothing. The tracer is registered in the ftrace infrastructure via
-the \verb|register_tracer| function which is called during kernel startup.
+The \verb|nop_trace| tracer is instantiated in line $19$, where the \verb|init|
+and \verb|reset| members on line $22$ and $23$ respectively are pointers to
+functions that are supposed to bring up and remove all events managed by the
+tracer, but, in this implementation, do nothing. The tracer is registered to the
+ftrace infrastructure via the \verb|register_tracer()| function which is called
+during kernel startup.
 
 The following is a non exhaustive list of available tracers:
 
@@ -200,35 +214,38 @@ the highest priority task to get scheduled after it has been woken up.
 
 \subsection{Static function tracing}
 
-To support tracing functions enter and exit events, ftrace implements a system
-to instrument any function in order to alter its execution and trace the event.
-For clarity, the following section will use the term \textit{trace} or
+To support tracing function enter and exit events, ftrace implements a system to
+instrument any function in order to alter its execution and trace the event. For
+clarity, the following section will use the term \textit{trace} function or
 \textit{tracing} function to refer to the function that performs the writing of
 the event onto the ftrace ringbuffer, and the \textit{traced} function to the
-function that is being instrumented.
+function that is being instrumented (traced).
 
-Whenever a C function is executed, meaning that the program counter reaches the
-first instruction belonging the function, the execution should jump to a tracing
-function and returns to the traced function without altering the registers.
-Likewise, when the program counter reaches the end of the function and returns,
-it should jump to a tracing function and later return to the original return
-address. This behaviour should be supported transparently, without altering
-existing code or to expect developers to put instrumentation jumps onto any
-function.
+When function tracing is enabled, whenever a C function is executed such that
+that the program counter reaches the first instruction belonging the function,
+then the execution should jump to a tracing function and return to the traced
+function without altering the registers. Likewise, when the program counter
+reaches the end of the function to return, it should jump to a tracing function
+and later jump to the original return address. This behaviour should be
+supported transparently, without altering existing code or to expect developers
+to statically place instrumentation onto any function.
 
-This is implemented by the \textit{gcc} compiler via the \verb|-pg| command line
-flags. When these flags are enabled, the compiler will generate a jump to a
-trace function called \verb|mcount| after the prologue of any function on the
-ARM CPU architecture, or a jump to \verb|__fentry__| before the prologue on the
-x86-64 architecture. For function exits, the trace function will change the
-return address of the traced function with the address of another trace
-function, which is saved on the stack as of C calling conventions. This is
+This can be implemented thanks to special compiler support for this specific use
+case. When \textit{gcc} is used with the \verb|-pg| command line flags, a jump
+to a trace function called \verb|mcount()| will be generated after the prologue
+of any function on the ARM CPU architecture, or a jump to \verb|__fentry__()|
+before the prologue on the x86-64 architecture. For function exits, the trace
+function will change the return address of the traced function with the address
+of a trace function. This replacement can happen because the return address of a
+function is saved on the stack as of C calling conventions, so changing this
+stack value will alter execution after returning from the function. This is
 referred to as "static function tracing" because the compiler instruments each
-function permanently at compile time.
+function permanently at compile time, and can be enabled via the
+\verb|CONFIG_FUNCTION_TRACER| kernel compile option.
 
-For example, the following \verb|sum| function would be compiled by gcc version
-16.1 into x86-64 assembly with \verb|-O0| flag as shown below. On the left the
-code in C, on the right its compiled code in assembly.
+For example, the following \verb|sum()| function is compiled by gcc 16.1 into
+x86-64 assembly with \verb|-O1| flag as shown below. On the left the code in C,
+on the right its compiled code in assembly:
 
 \noindent
 \vspace{0.5em}
@@ -252,12 +269,12 @@ int sum(int a, int b) {
 \end{minipage}
 
 \noindent
-\vspace{0.5em}
+\vspace{1.0em}
 
-While the same compiler would compile that same function as follows with the
-\verb|-pg| flag:
+The same compiler would compile the same function as follows, this time with the
+\verb|-pg| flag added:
 
-\vspace{0.5em}
+\vspace{1.0em}
 
 \begin{minipage}[t]{0.47\textwidth}
 \begin{verbatim}
@@ -278,40 +295,44 @@ int sum(int a, int b) {
 \end{verbatim}
 \end{minipage}
 
-\vspace{0.5em}
+\vspace{1.0em}
+
+In the second version, the compiler added a call to \verb|__fentry__()| before
+performing the sum operation. The \verb|__fentry__()| function can be
+implemented anywhere and run any arbitrary code, which in the case of Linux
+would be used for tracing purposes.
 
 A shortcoming of this implementation is that each function suffers the cost of a
 jump and a return at minimum, causing some performance loss in case tracing is
-not turned on. This issue is solved with "dynamic function tracing", which will
-be discussed next.
-
-Static function tracing can be enabled via the \verb|CONFIG_FUNCTION_TRACER|
-compile option.
+compiled in but not turned on. This issue is solved with "dynamic function
+tracing", which will be discussed next.
 
 \subsection{Dynamic function tracing}
 
-In order not to have any performance penalty when tracing is supported but
+In order to not have any performance penalty when tracing is supported but
 disabled, ftrace provides a way to dynamically patch functions to add or remove
-tracing instrumentation. This is enabled with the compile option
-\verb|DYNAMIC_FTRACE|.
+tracing instrumentation. Dynamic tracing is enabled with the kernel compile
+option \verb|DYNAMIC_FTRACE|.
 
 When dynamic function tracing is enabled, the kernel will patch all calls to
-\verb|mcount| or \verb|__fentry__| with \verb|NOP| operations at boot-time. When
-tracing is enabled, the same \verb|NOP| instruction are patched to a call to
-\verb|ftrace_caller| or \verb|ftrace_regs_caller|. This code patching allows for
-no overhead in case tracing is disabled.
-
-The information of all the locations of all \verb|mcount| calls is generated at
-compile time via the \verb|recordmcount| program which is invoked by the build
-infrastructure. The tool stores all the locations of these functions in the
-\verb|__mcount_loc| ELF section, which is linked in the original object file.
+\verb|mcount()| or \verb|__fentry__()| with \verb|NOP| operations at boot-time,
+which do not perform any operation. When tracing is enabled, the \verb|NOP|
+instructions are patched with a call to \verb|ftrace_caller()| or
+\verb|ftrace_regs_caller()| which can access a copy of all original registers
+from the traced function. The information of all the locations of all
+\verb|mcount()| calls is generated at compile time via the \verb|recordmcount|
+program which is invoked by the build infrastructure. The tool stores all the
+locations of these functions in the \verb|__mcount_loc| ELF section, which is
+linked in the original object file. Through this information, ftrace know what
+and where to patch code. This system allows for minimum overhead in the case
+where tracing is disabled.
 
 The tracing function \verb|ftrace_caller| is also referred to as a "trampoline"
 because its instructions are dynamically patched to jump to the functions which
 are currently enabled depending on the current tracer o particular events,
 represented in the \verb|struct trace_ops|. Ftrace provides the function
-\verb|register_ftrace_function| to register a trampoline which is created by an
-architecture dependent function, \verb|create_trampoline|.
+\verb|register_ftrace_function()| to register a trampoline which is implemented
+by an architecture dependent function, \verb|create_trampoline()|.
 
 For example, consider the following assembly function:
 
@@ -323,8 +344,8 @@ some_kernel_func:
   RET
 \end{verbatim}
 
-When tracing disabled but dynamic tracing is supported, some \verb|NOP|
-operations would be patched in:
+When tracing is disabled but dynamic tracing is supported, some \verb|NOP|
+operations would be patched in at the start like in the next example:
 
 \begin{verbatim}
 # Symbol where instructions like: CALL some_kernel_func will jump to.
@@ -338,8 +359,8 @@ some_kernel_func:
   RET
 \end{verbatim}
 
-When tracing is enabled, these same \verb|NOP| functions are replaced with
-\verb|ftrace_caller|:
+When tracing is enabled, these same \verb|NOP| functions are replaced with a
+call to \verb|ftrace_caller()|:
 
 \begin{verbatim}
 # Symbol where instructions like: CALL some_kernel_func will jump to.
@@ -362,82 +383,83 @@ custom filesystems or custom entries in an already existing filesystem as a
 method to provide new functionalities to the user. This is the case because
 filesystems make the interface explicit and visible in user space; they also
 make it easier to write scripts which perform administrative functions.
-Originally, ftrace used the \textit{debufgs} but it grew substantially to
-motivate the addition of the current interface, tracefs.
+Originally, ftrace used the \textit{debufgs} filesystem but it grew enough to
+motivate the addition of the current interface, tracefs. In this section, the
+term \textit{\$TRACEFS} will be used to represent the location where the tracefs
+filesystem is mounted.
 
-In this section, the term \textit{\$TRACEFS} will be used to represent the
-location where the tracefs filesystem is mounted.
-
-The user can access the formatted content of all ring buffers by reading the
-file \textit{\$TRACEFS/trace} without consuming the buffer, or
-\textit{\$TRACEFS/trace\_pipe} to consume it. Additionally, he can get
+Users can access the formatted content of all ring buffers by reading the
+\textit{\$TRACEFS/trace} file without consuming the buffer, or
+\textit{\$TRACEFS/trace\_pipe} to consume it. Additionally, they can get
 information about the buffer state from several files beginning with
-\verb|buffer_*|. To access a particular per-CPU buffer, he can use the files
-from the directory \textit{\$TRACEFS/per\_cpu/\$CPU\_NUMBER/}.
-
-The user can query a list of the tracers supported by its running kernel by
-reading the file \textit{\$TRACEFS/available\_tracers}. He can select a
-tracer by writing its name to the file \textit{\$TRAEFS/current\_tracer}
-and tune its options from \textit{\$TRACEFS/options/\$OPTION\_NAME}.
-
-Additionally, tracefs provides a way to specify filters for events, so that only
-certain evens in certain contexts will be logged.
+\verb|buffer_*|. To access a particular per-CPU buffer, they can use the files
+from the directory \textit{\$TRACEFS/per\_cpu/\$CPU\_NUMBER/}. Users can query a
+list of the tracers supported by the running kernel by reading the file
+\textit{\$TRACEFS/available\_tracers}. They can select a tracer by writing its
+name to the file \textit{\$TRAEFS/current\_tracer} and tune its options from
+\textit{\$TRACEFS/options/\$OPTION\_NAME}. Additionally, tracefs provides a way
+to specify filters for events, so that only certain evens in certain contexts
+will be logged.
 
 A more thorough explanation of the tracefs interface is available in the kernel
 documentation.
 
 \section{Perf}
 
-The \textit{perf} subsystem is another architecture provided by the kernel to
-access trace events. It was originally designed as an interface to read hardware
-performance counters (hence the name "perf"), which are increasing integers
-provided by the hardware manufacturers, that store various information about the
-hardware such as number of CPU cache misses or number of incorrect branch
-predictions. Counters are simple because they only signal that an event has
-happened, but the perf subsystem can also be used to interface with other types
-of events, such as static or dynamic events that log rich information, providing
-a different interface than ftrace.
+The \textit{perf} subsystem is another tracing framework provided by the kernel
+to manage and interact with trace events. It was originally designed as an
+interface to read hardware performance counters (hence the name "perf" as in
+"performance"), which are increasing integers provided by the hardware
+manufacturers that store various information about the hardware such as number
+of CPU cache misses or number of incorrect branch predictions. Counters are
+simple because they only signal that an event has happened and how many times,
+but the perf subsystem can also be used to interface with other types of events,
+such as static or dynamic events that log rich information, therefore providing
+a different interface than ftrace. Event counters as provided by perf are
+referred to as \textit{perf events}, which can be either \textit{software} or
+\textit{hardware} depending on what generated the event or increased the
+counter.
 
 \subsection{The Perf ring buffer}
 
-Like ftrace, the perf infrastructure implements its own ring buffer data
-structure, with some similarities and key differences. This is used for
-\textit{sampling} events that periodically write measurements to the buffer, as
-opposed to \textit{counting} events which count the aggregate number of events
-that occur and commonly do not use the ring buffer.
+To produce and consume event data, the perf infrastructure implements its own
+ring buffer data structure, with some similarities and key differences compared
+to ftrace's implementation. This is used for \textit{sampling} events that
+periodically write measurements to the buffer, as opposed to \textit{counting}
+events which count the aggregate number of events that occur and commonly do not
+use the ring buffer. Unlike ftrace's, the perf ring buffer is not a global
+static ring buffer, but it is rather created by the user via a systemcall and
+liked to the lifetime of another object, such as a file descriptor. Another key
+difference from ftrace's is the fact that the perf ring buffer is a contiguous
+area of virtual memory that can be memory mapped via \verb|mmap()| to the user's
+virtual address space, while ftrace uses a linked list of pages which are read
+through a filesystem. Memory mapping the ring buffer removes the need of
+repeated \verb|read()| systemcalls which are expensive operations. The memory
+mapped area follows the structure of \verb|struct perf_event_mmap_page|
+containing a pointer to the "head" producer, which is updated by the kernel, and
+"tail" consumer, updated by the user program. Consequently, it is the
+responsibility of the user to atomically update the tail pointer after consuming
+the data, while the kernel updates the head pointer as it fills the buffer.
+Similarly to ftrace, the perf ring buffer uses a reserve and commit pattern with
+the \verb|perf_output_begin()| and \verb|perf_output_end()| functions.
 
-Unlike ftrace's, the perf ring buffer is not a global static ring buffer, but it
-is rather created by the user via a systemcall and liked to the lifetime of
-another object, such as a file descriptor. Another key difference from ftrace's
-is the fact that the perf ring buffer is a contiguous area of virtual memory
-that can be memory mapped to the user, while ftrace uses a linked list of pages.
-Using mmap removes the need of repeated \verb|read| systemcalls which are
-expensive because they cause a trap. The mmapped area is structured as the
-\verb|struct perf_event_mmap_page| which contains pointer to head producer,
-which is updated by the kernel, and tail consumer, updated by the user program.
-Therefore, it is the responsibility of the user to update the tail pointer after
-consuming the data, while the kernel updates the head pointer as it fills the
-buffer.
-
-For hardware events, perf uses architecture-specific auxiliary ring buffers
-called "AUX ring buffers". Since they are implemented matching the particular
-architecture needs, they provide lower latency for high frequency events
-compared to a generic implementation. Similarly to ftrace, the perf ring buffer
-uses a reserve and commit pattern with the \verb|perf_output_begin| and
-\verb|perf_output_end| functions.
+For hardware events, perf uses architecture-specific \textit{auxiliary (AUX)
+ring buffers}. Since they are implemented based on a particular architecture's
+needs, they provide lower latency for high frequency events compared to a
+generic implementation.
 
 \subsection{The Performance Monitoring Unit}
 
-To manage perf event, the subsystem introduces the Performance Monitoring Unit
-(PMU) abstraction represented in the \verb|struct pmu| type. This object manages
-the entire life cycle of an event, from registering and unregistering it, to
-starting and stopping tracing and reading the counter.
+To manage perf events, the perf subsystem introduces the \textit{Performance
+Monitoring Unit (PMU)} abstraction implemented as the \verb|struct pmu| type.
+This object manages the entire life cycle of an event, from registering and
+unregistering it, to starting and stopping tracing, and reading the counter.
 
-All the PMUs are registered with the \verb|perf_pmu_register| function and added
-to a global list of all PMUs. The function takes a \verb|struct pmu|, a name and
-an integer "type". The name is used to register a directory in the
-\textit{sysfs} filesystem under
-\textit{\$SYSFS/bus/event\_source/devices/\$NAME/} where \verb|$SYSFS| is the
+All the PMUs are registered with the \verb|perf_pmu_register()| function and
+added to a global list of all PMUs. The function takes a \verb|struct pmu|, a
+name and an integer variable named "type". The name is used to register a
+directory in the \textit{sysfs} filesystem under
+\textit{\$SYSFS/bus/event\_source/devices/\$NAME/}, where \verb|$SYSFS| is the
 location of the sysfs filesystem, and \verb|$NAME| is the name of the PMU passed
 to the registration function. The "type" argument will specify which binary
 format the event will use. Each PMU contains pointer to functions to manage the
@@ -446,13 +468,13 @@ one or more event; the structure looks like the following:
 \begin{verbatim}
 struct pmu {
   // ...
-	void (*pmu_enable)		(struct pmu *pmu); /* optional */
-	void (*pmu_disable)		(struct pmu *pmu); /* optional */
-	int  (*event_init)		(struct perf_event *event);
-	int  (*add)			(struct perf_event *event, int flags);
-	void (*del)			(struct perf_event *event, int flags);
-	void (*start)			(struct perf_event *event, int flags);
-	void (*stop)			(struct perf_event *event, int flags);
+  void (*pmu_enable) (struct pmu *pmu); /* optional */
+  void (*pmu_disable) (struct pmu *pmu); /* optional */
+  int  (*event_init) (struct perf_event *event);
+  int  (*add) (struct perf_event *event, int flags);
+  void (*del) (struct perf_event *event, int flags);
+  void (*start) (struct perf_event *event, int flags);
+  void (*stop) (struct perf_event *event, int flags);
   // ...
 };
 \end{verbatim}
@@ -465,7 +487,7 @@ later chapter.
 The user interacts with the perf subsystem with a specific systemcall:
 \verb|perf_event_open|. Through this API, the user can access event counters or
 to the ring buffer with control over which context should be traced such per
-per-thread or per-CPU.
+per-thread or per-CPU. This systemcall does not have a \textit{libc} wrapper.
 
 The function signature of the systemcall is the following:
 
@@ -475,15 +497,13 @@ int perf_event_open(struct perf_event_attr *attr,
                     unsigned long flags);
 \end{verbatim}
 
-This systemcall does not have a \textit{libc} wrapper.
-
 The \verb|struct perf_event_attr| type is used to specify which event should be
 monitored and tune some variables such as the frequency of sampling or whether
 to exclude counting on certain contexts such as user or kernel. The full content
 of the structure is described in the man page. The "pid" and "cpu" arguments are
 used to specify which process and CPU to monitor, the allowed values and their
 meanings are also explained in the manual page. Finally, the "group\_fd"
-argument can be used to create events in group which is useful to measure
+argument can be used to create events in groups which is useful to measure
 multiple events simultaneously, and the "flags" argument specify additional
 options.
 
@@ -495,19 +515,19 @@ using the file descriptor can be issued to enable or disable the event.
 \subsection{Security considerations}
 
 Performance counters introduces substantial security risks regarding the
-potential leakage of sensitive data handled by monitored processes. Events can
-leak information such as hardware configuration, content of registers, execution
-data (context switches, pages faults) etc, with various degrees of risk.
-Therefore, the perf subsystem supports several security frameworks: Unix
-privilege model, POSIX capabilities and linux security modules (LSM).
+potential leakage of sensitive data provided by monitored events. These events
+can leak information such as hardware configuration, content of registers,
+execution data (context switches, pages faults) etc, with various degrees of
+risk. Therefore, the perf subsystem supports several security frameworks: the
+Unix privilege model, POSIX capabilities and Linux security modules (LSM).
 
 In particular, usage of the systemcall is restricted to privileged users (Unix
-\verb|root|) while other users need to have the CAP\_PERFMON capabilities. The
-systemcall also registers a LSM hook which can be used by any security module to
-provide custom access policies. Additionally, the subsystem register the
-\verb|perf_event_paranoid| parameter, available in \textit{ /proc/sys/kernel /
-perf\_event\_paranoid}, which can be set to provide stricter or looser access
-checks, as described in the systemcall manual page.
+\verb|root|) while other users need to have the \verb|CAP_PERFMON| capability.
+The systemcall also registers a LSM hook which can be used by any security
+module to provide custom access policies. Additionally, the subsystem register
+the \verb|perf_event_paranoid| parameter, accessible in \textit{
+  /proc/sys/kernel / perf\_event\_paranoid}, which can be set to provide
+stricter or looser access checks, as described in the systemcall manual page.
 
 \section{Others}
 

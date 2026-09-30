@@ -13,25 +13,8 @@ an eBPF runtime. A compiler may be used to generate the BPF instructions from an
 higher-level language such as C or Rust to make the development of eBPF program
 easier for developers.
 
-Standardizing the BPF ISA is significantly important to allow compiler
-developers, tools developers, eBPF runtime developers and ASIC designers to
-agree to a common reference. The formal IETF standardization effort was started
-from earlier drafts in October 2023 with RFC 9669; the RFC was finally
-standardized one year later and updated multiple times since the first version.
-All the information presented in this section are referring to the RFC as last
-updated in 20 May 2026.
-
-Controversially, the RFC does not standardize the platform-specific application
-binary interface (ABI) because a common consensus was not reached, hence it was
-preferred to be left out of the standard. This includes various details such as:
-which registers are saved across a call, which registers contain the frame
-pointer, how large the stack is, and other specifics. Further standardization is
-left for "future work"; however, the Linux BPF ABI is well explained in the
-kernel documentation and any BPF runtime that wishes to be compatible with the
-Linux implementation must follow it.
-
-The figure below shows C code on the left and an human readable form of BPF
-bytecode on the right compiled with clang 23.1.0:
+For example, the figure below shows C code on the left and an human readable
+form of BPF bytecode on the right compiled with clang 23.1.0:
 
 \noindent
 \vspace{0.5em}
@@ -65,6 +48,25 @@ sum_foo(int, int):
 Each line on the right corresponds to a BPF assembly instruction. The term
 \verb|w1|, \verb|w2| represent the first word of the register number 1 and 2
 respectively, and \verb|r10| is the full register number 10.
+
+\subsection{Standardization}
+
+Standardizing the BPF ISA is significantly important to allow compiler
+developers, tools developers, eBPF runtime developers and ASIC designers to
+agree to a common reference. The formal IETF standardization effort was started
+from earlier drafts in October 2023 with RFC 9669 \cite{rfc9669}; the RFC was
+finally standardized one year later and updated multiple times since the first
+version. All the information presented in this section are referring to the RFC
+as last updated in 20 May 2026.
+
+Controversially, the RFC does not standardize the platform-specific application
+binary interface (ABI) because a common consensus was not reached, hence it was
+preferred to be left out of the standard. This includes various details such as:
+which registers are saved across a call, which registers contain the frame
+pointer, how large the stack is, and other specifics. Further standardization is
+left for "future work"; however, the Linux BPF ABI is well explained in the
+kernel documentation and any BPF runtime that wishes to be compatible with the
+Linux implementation must follow it.
 
 \subsection{Instructions and encoding}
 
@@ -505,6 +507,8 @@ section, and a program of type \verb|BPF_PROG_TYPE_CGROUP_SKB| is put in the
 different types in the same ELF binary, and it is used by libbpf to provide a
 set of convenient APIs for the eBPF program developer.
 
+\subsection{Attach points}
+
 After loading, verifying and JIT compiling the program, it needs to be attached
 to some event or other object; the attach point depends on the type of the
 program. For example, the program will be attached to a perf event if the
@@ -518,6 +522,8 @@ example a program that is attached to a tracepoint will be executed every time
 that tracepoint is fired. The program will also be able to access the
 information of the tracepoint if it is attached to it, so that it can implement
 specific custom logic to react to the event.
+
+\subsection{Trampolines}
 
 To create certain types of attachments, special trampolines are used, which rely
 on the dynamic ftrace infrastructure as explained in a previous chapter, to
