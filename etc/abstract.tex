@@ -2,12 +2,24 @@
 \label{cha:abtract}
 \addcontentsline{toc}{chapter}{Abstract}
 
-Over the years, Linux kernel developers have introduced a vast number
-of powerful tracing capabilities. Linux userspace and kernel
-developers, system administrators, performance enginners and alikes
-rely and benefit from these tracing capabilities to monitor, debug and
-secure their systems. In this work we first discuss the tracing
-methods available for the Linux kernel as of verion 7.0, we then focus
-on eBPF, its design and importance, we finally present Kivebpf as a
-case study for an application that uses eBPF in a Kubernetes cluster
-for security monitoring.
+% research problem and objectives, literature (test, analyze, evaluate), present
+% tense
+
+% methods, past tense
+
+% key results and arguments, present or past simple
+
+% conclusions, implications, present simple
+
+Linux supports a vast number of powerful tracing capabilities. Over the history
+of the operating system, multiple frameworks and event sources have been
+introduced for different use cases. Due to the size and complexity of the Linux
+kernel, its tracing capabilities are often not well understood by developers and
+are frequently associated with "black magic". An analysis of the Linux kernel
+codebase was conducted, gathering information through source code, git commits,
+mailing lists, technical articles, and conference talks. This work presents a
+description of the tracing infrastructure provided by the Linux kernel version
+7.2, focusing on traditional frameworks like Ftrace and Perf, event sources like
+tracepoints and kprobes, and modern developments through eBPF. Finally, a real
+use case for eBPF in containerized environments is studied, presenting Kivebpf
+as an application leveraging modern Linux tracing infrastructure.
