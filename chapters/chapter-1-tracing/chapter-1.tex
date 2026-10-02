@@ -411,7 +411,8 @@ to manage and interact with trace events. It was originally designed as an
 interface to read hardware performance counters (hence the name "perf" as in
 "performance"), which are increasing integers provided by the hardware
 manufacturers that store various information about the hardware such as number
-of CPU cache misses or number of incorrect branch predictions. Counters are
+of CPU cache misses or number of incorrect branch predictions. Counters are very
+useful for performance analysis as they provide precise measurements. They are
 simple because they only signal that an event has happened and how many times,
 but the perf subsystem can also be used to interface with other types of events,
 such as static or dynamic events that log rich information, therefore providing
@@ -456,14 +457,16 @@ This object manages the entire life cycle of an event, from registering and
 unregistering it, to starting and stopping tracing, and reading the counter.
 
 All the PMUs are registered with the \verb|perf_pmu_register()| function and
-added to a global list of all PMUs. The function takes a \verb|struct pmu|, a
-name and an integer variable named "type". The name is used to register a
-directory in the \textit{sysfs} filesystem under
+added to a global list of all PMUs, called "\verb|pmus|". The function takes a
+\verb|struct pmu|, a name and an integer variable named "type". The name is used
+to register a directory in the \textit{sysfs} filesystem under
 \textit{\$SYSFS/bus/event\_source/devices/\$NAME/}, where \verb|$SYSFS| is the
 location of the sysfs filesystem, and \verb|$NAME| is the name of the PMU passed
-to the registration function. The "type" argument will specify which binary
-format the event will use. Each PMU contains pointer to functions to manage the
-one or more event; the structure looks like the following:
+to the registration function. Through the sysfs API the user can enumerate and
+get useful metadata about the events, but reading the actual event must be done
+through a systemcall as described in the next section. The "type" argument will
+specify which binary format the event will use. Each PMU contains pointer to
+functions to manage one or more events; the structure looks like the following:
 
 \begin{verbatim}
 struct pmu {
@@ -485,8 +488,8 @@ later chapter.
 \subsection{The perf\_event\_open syscall}
 
 The user interacts with the perf subsystem with a specific systemcall:
-\verb|perf_event_open|. Through this API, the user can access event counters or
-to the ring buffer with control over which context should be traced such per
+\verb|perf_event_open()|. Through this API, the user can access event counters
+or to the ring buffer with control over which context should be traced such per
 per-thread or per-CPU. This systemcall does not have a \textit{libc} wrapper.
 
 The function signature of the systemcall is the following:
@@ -498,8 +501,8 @@ int perf_event_open(struct perf_event_attr *attr,
 \end{verbatim}
 
 The \verb|struct perf_event_attr| type is used to specify which event should be
-monitored and tune some variables such as the frequency of sampling or whether
-to exclude counting on certain contexts such as user or kernel. The full content
+monitored and some variables such as the frequency of sampling or whether to
+exclude counting on certain contexts such as user or kernel. The full definition
 of the structure is described in the man page. The "pid" and "cpu" arguments are
 used to specify which process and CPU to monitor, the allowed values and their
 meanings are also explained in the manual page. Finally, the "group\_fd"
@@ -509,8 +512,9 @@ options.
 
 The return value is a new file descriptor or $-1$ on error. The user can use the
 file descriptor to read the counter, or to memory map the ring buffer to
-userspace to access its memory directly. Subsequent calls to \verb|ioctl|
-using the file descriptor can be issued to enable or disable the event.
+userspace to access its memory directly. Calls to \verb|ioctl()| using the file
+descriptor can be issued to enable or disable the event. Multiple counters can
+be kept open at a time, and the counters can be polled with \verb|poll()|.
 
 \subsection{Security considerations}
 
