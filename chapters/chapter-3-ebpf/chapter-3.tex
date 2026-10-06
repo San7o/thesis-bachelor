@@ -555,11 +555,98 @@ TODO
 
 TODO
 
-\section{Helper functions}
+\section{Helper functions and Kfuncs}
 
-TODO
+To perform special operations and to interact with the rest of the operating
+system, eBPF are allowed to use special tailored functions for this purpose,
+called \textit{helper functions}. Not all programs can use all helper functions:
+the eBPF program type determines the set of helpers that can be called; this
+ensures that an eBPF program is only allowed to interact with a limited set of
+the kernel's subsystems. Helper functions are considered User Space API (UAPI),
+meaning that the API is stable and will be kept forward compatible on future
+kernel versions. A full list of helpers is documented in the
+\textit{bpf-helpers(7)} man page.
 
-Status: done researching this section, needs to be written
+Additionally, eBPF programs are allowed to call another set of special
+functions: \textit{kfuncs}. These functions can be used to access other
+infrastructure in the kernel, but they differ from helper functions as they are
+not considered UAPI. This means that an eBPF program that uses kfuncs may not be
+compatible with new versions of the kernel, therefore defensive programming
+techniques are advised, such as by supporting alternatives in the eBPF program
+if a function is not available. Kfuncs are now the preferred method for adding
+new functionalities to eBPF programs since they are not expected to be supported
+indefinitely: this makes it possible to refactor and improve them with less
+effort and reduce code debt. An example of kfunc registration is now analyzed.
+
+The following code defines the kfunc \verb|bpf_list_add()|:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+__bpf_kfunc_start_defs();
+
+__bpf_kfunc int bpf_list_add(struct bpf_list_head *head, struct bpf_list_node *new,
+           struct bpf_list_node *prev__nonown_allowed,
+           struct btf_struct_meta *meta, u64 off) {
+  /* ... */
+}
+
+__bpf_kfunc_end_defs();
+\end{Verbatim}
+
+The function needs to be declared between \verb|__bpf_kfunc_start_defs()| and
+\verb|__bpf_kfunc_end_defs()| on line $1$ and $9$ respectively, which remove
+some compiler warnings. The \verb|__bpf_kfunc| specifies some linking options.
+They expand with the following code:
+
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#define __bpf_kfunc __used __retain __noclone noinline
+
+#define __bpf_kfunc_start_defs()                 \
+  __diag_push();                     \
+  __diag_ignore_all("-Wmissing-declarations",             \
+        "Global kfuncs as their definitions will be in BTF");\
+  __diag_ignore_all("-Wmissing-prototypes",             \
+        "Global kfuncs as their definitions will be in BTF")
+
+#define __bpf_kfunc_end_defs() __diag_pop()
+#define __bpf_hook_start() __bpf_kfunc_start_defs()
+#define __bpf_hook_end() __bpf_kfunc_end_defs()
+\end{Verbatim}
+
+After declaring the function, it needs to be registered so that the verifier
+knows about it, which ensures that only valid kfuncs are called. This is done
+with the macro \verb|BTF_ID()| which is used in the following way:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+BTF_ID(func, bpf_list_add)
+\end{Verbatim}
+
+The macro expands to \verb|____BTF_ID|:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#define BTF_IDS_SECTION ".BTF_ids"
+
+#define ____BTF_ID(symbol, word)      \
+asm(              \
+".pushsection " BTF_IDS_SECTION ",\"a\";       \n"  \
+".local " #symbol " ;                          \n"  \
+".type  " #symbol ", STT_OBJECT;               \n"  \
+".size  " #symbol ", 4;                        \n"  \
+#symbol ":                                     \n"  \
+".zero 4                                       \n"  \
+word              \
+".popsection;                                  \n");
+\end{Verbatim}
+
+For the kfunc, an unique label in the \verb|.BTF_ids| section is created (line
+$5$), which is initially filled with 4 bytes of zeros (line $10$) during
+compilation and resolved later during the linking phase by a special tool named
+\verb|resolve_btfids| which is invoked by the kernel build infrastructure. These
+4 byes is filled with the BTF ID of the kfunc, used by the verifier to match it
+with the eBPF program. Moreover, additional information about the arguments of
+the kfunc can be specified for the verifier via a technique known as
+\textit{annotations}, such as whether a null pointer is accepted or that only a
+known constant value can be passed.
 
 \section{Maps}
 
