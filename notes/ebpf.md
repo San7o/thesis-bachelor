@@ -817,7 +817,7 @@ etc. Explaintations in https://origin.kernel.org/doc/html/latest/bpf/kfuncs.html
 Maps
 ----
 
-There are many typers of maps, generic and non-generic. They are used as
+There are many types of maps, generic and non-generic. They are used as
 key/value store to communicate between the eBPF program and userspace, but the
 same api is used to provide other data structures like stacks, queue,
 ringbufferes, arena etc. They are reference counted, so as long as some code is

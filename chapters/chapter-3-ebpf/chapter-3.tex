@@ -650,9 +650,113 @@ known constant value can be passed.
 
 \section{Maps}
 
-TODO
+RFC 9669 for the BPF Instruction Set Architecture defines the concept of maps as
+"shared memory regions accessible by BPF programs on some platforms". They were
+included in the standard because maps are heavily used by the Linux eBPF
+implementation as one of the main mechanisms to interact between the eBPF
+program and userspace, and among eBPF programs. However, the RFC does not
+standardize any specific map interface, leaving this important detail to the
+implementation. In this section we examine how maps are implemented in the Linux
+kernel. Due to the number of types of maps (more than 30), the specifics of
+every maps are not described, their interface is documented in the \verb|bpf|
+man page.
 
-Status: done researching this section, needs to be written
+Many types of maps exist, specifying different semantics and memory layouts.
+These are enumerated in the type \verb|enum bpf_map_type|, and are mostly used
+as generic data structures for storage of different types of data. Maps
+generally provide an API to implement stacks, queues, ring buffers, arenas etc.
+As maps are reference counted, they will stay in memory as long as there are
+users of them.
+
+Any map implements a set of operations specified in the \verb|struct bpf_map_ops|
+type as shown below from \textit{\$LINUX/include/linux/bpf.h}:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+struct bpf_map_ops {
+  /* funcs callable from userspace (via syscall) */
+  int (*map_alloc_check)(union bpf_attr *attr);
+  struct bpf_map *(*map_alloc)(union bpf_attr *attr);
+  void (*map_release)(struct bpf_map *map, struct file *map_file);
+  void (*map_free)(struct bpf_map *map);
+  int (*map_get_next_key)(struct bpf_map *map, void *key, void *next_key);
+  void (*map_release_uref)(struct bpf_map *map);
+  /* ... */
+  /* funcs callable from userspace and from eBPF programs */
+  void *(*map_lookup_elem)(struct bpf_map *map, void *key);
+  long (*map_update_elem)(struct bpf_map *map, void *key, void *value, u64 flags);
+  long (*map_delete_elem)(struct bpf_map *map, void *key);
+  long (*map_push_elem)(struct bpf_map *map, void *value, u64 flags);
+  long (*map_pop_elem)(struct bpf_map *map, void *value);
+  long (*map_peek_elem)(struct bpf_map *map, void *value);
+  void *(*map_lookup_percpu_elem)(struct bpf_map *map, void *key, u32 cpu);
+  int (*map_get_hash)(struct bpf_map *map);
+  /* ... */
+}
+\end{Verbatim}
+
+The various functions such as \verb|map_alloc()| on line 4 and \verb|map_free()|
+on line 6 and many others are called at various moments during the map's
+lifetime. The functions \verb|map_lookup_elem()|, \verb|map_update_elem()| and
+similar ones are used to modify its contents. The specific implementation of
+these functions depends on how the specific map wants to handle the data.
+
+After defining the various operations for a map and defining static storage for
+a \verb|struct bpf_maps_ops|, the map is registered with all maps by appending
+its name to the \textit{\$LINUX/include/linux/bpf\_types.h} in the macro
+\verb|BPF_MAP_TYPE()|. All map entries from this file will be saved in a global
+array of maps in the following manner:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+static const struct bpf_map_ops * const bpf_map_types[] = {
+#define BPF_PROG_TYPE(_id, _name, prog_ctx_type, kern_ctx_type)
+#define BPF_MAP_TYPE(_id, _ops) \
+  [_id] = &_ops,
+#define BPF_LINK_TYPE(_id, _name)
+#include <linux/bpf_types.h>
+#undef BPF_PROG_TYPE
+#undef BPF_MAP_TYPE
+#undef BPF_LINK_TYPE
+};
+\end{Verbatim}
+
+The header \verb|linux/bpf_types.h| in line 6 will be included inside the
+\verb|bpf_map_types| array, and each \verb|BPF_MAP_TYPE()| macro will be
+expanded to place each map's operations in the array based on it's ID on line 4.
+
+To create a map from userspace, the \verb|bpf()| systemcall is used:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+int bpf_create_map(enum bpf_map_type map_type,
+               unsigned int key_size,
+               unsigned int value_size,
+               unsigned int max_entries)
+{
+    union bpf_attr attr = {
+        .map_type    = map_type,
+        .key_size    = key_size,
+        .value_size  = value_size,
+        .max_entries = max_entries
+    };
+
+    return bpf(BPF_MAP_CREATE, &attr, sizeof(attr));
+}
+\end{Verbatim}
+
+Lookups and other operations are also executed through the \verb|bpf()|
+systemcall:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+int bpf_lookup_elem(int fd, const void *key, void *value)
+{
+    union bpf_attr attr = {
+        .map_fd = fd,
+        .key    = ptr_to_u64(key),
+        .value  = ptr_to_u64(value),
+    };
+
+    return bpf(BPF_MAP_LOOKUP_ELEM, &attr, sizeof(attr));
+}
+\end{Verbatim}
 
 \section{BTF and CO-RE}
 
