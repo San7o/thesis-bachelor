@@ -2,7 +2,17 @@
 
 \section{Introduction and overview}
 
-TODO
+TODO: introduction on eBPF, as the modern solution for dynamic tracing and
+observability
+
+TODO: some history of eBPF
+
+TODO: explain how eBPF connects with the rest of the tracing infrastructure
+
+TODO: general overview of the eBPF architecture: system call, verifyier, program
+types
+
+TODO: example program
 
 \section{Instruction Set}
 
@@ -240,7 +250,7 @@ output of the verifier will determine if the program is considered safe or not.
 Therefore, the verifier is a critical part of the eBPF architecture and its
 implementation has been widely scrutinized. Given the complexity of checking
 some of the requirements at load time, the verifier implementation is highly
-complex. Just the file \textit{\$LINUX/kernel/bpf/verifier.c}, which implements
+complex. Just the file \path{$LINUX/kernel/bpf/verifier.c}, which implements
 most of the logic, is about $20000$ lines of code long, although solutions to
 simplify and modularize it are being discussed by its developers.
 
@@ -349,7 +359,7 @@ example, load and store instructions are allowed only with registers of type
 \verb|PTR_TO_CTX|, \verb|PTR_TO_MAP| and \verb|PTR_TO_STACK|.
 
 The set of available types is defined in \verb|enum bpf_reg_type| present in
-\textit{\$LINUX/include/linux/bpf.h}. The following is an extract of the enum
+\path{$LINUX/include/linux/bpf.h}. The following is an extract of the enum
 for context:
 
 \begin{verbatim}
@@ -457,7 +467,7 @@ bpf_check
 Each eBPF program is of a certain type, which determines what resources and
 functions the program has access to, and when the program is executed. The
 possible types are enumerated in \verb|enum bpf_prog_type| in
-\textit{\$LINUX/include/uapi/linux/bpf.h} which is reported below:
+\path{$LINUX/include/uapi/linux/bpf.h}, an extract is reported below:
 
 \begin{verbatim}
 enum bpf_prog_type {
@@ -470,31 +480,7 @@ enum bpf_prog_type {
   BPF_PROG_TYPE_XDP,
   BPF_PROG_TYPE_PERF_EVENT,
   BPF_PROG_TYPE_CGROUP_SKB,
-  BPF_PROG_TYPE_CGROUP_SOCK,
-  BPF_PROG_TYPE_LWT_IN,
-  BPF_PROG_TYPE_LWT_OUT,
-  BPF_PROG_TYPE_LWT_XMIT,
-  BPF_PROG_TYPE_SOCK_OPS,
-  BPF_PROG_TYPE_SK_SKB,
-  BPF_PROG_TYPE_CGROUP_DEVICE,
-  BPF_PROG_TYPE_SK_MSG,
-  BPF_PROG_TYPE_RAW_TRACEPOINT,
-  BPF_PROG_TYPE_CGROUP_SOCK_ADDR,
-  BPF_PROG_TYPE_LWT_SEG6LOCAL,
-  BPF_PROG_TYPE_LIRC_MODE2,
-  BPF_PROG_TYPE_SK_REUSEPORT,
-  BPF_PROG_TYPE_FLOW_DISSECTOR,
-  BPF_PROG_TYPE_CGROUP_SYSCTL,
-  BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE,
-  BPF_PROG_TYPE_CGROUP_SOCKOPT,
-  BPF_PROG_TYPE_TRACING,
-  BPF_PROG_TYPE_STRUCT_OPS,
-  BPF_PROG_TYPE_EXT,
-  BPF_PROG_TYPE_LSM,
-  BPF_PROG_TYPE_SK_LOOKUP,
-  BPF_PROG_TYPE_SYSCALL, /* a program that can execute syscalls */
-  BPF_PROG_TYPE_NETFILTER,
-  __MAX_BPF_PROG_TYPE
+  /* ... */
 };
 \end{verbatim}
 
@@ -530,10 +516,10 @@ on the dynamic ftrace infrastructure as explained in a previous chapter, to
 allow kernel code to call into BPF programs with practically zero overhead using
 code patching. Such special attachments are \verb|BPF_TRACE_FENTRY|,
 \verb|BPF_TRACE_FEXIT|, \verb|BPF_MODIFY_RETURN|, \verb|BPF_TRACE_FSESSION|,
-\verb|BPF_TRACE_FENTRY_MULTI|, \verb|BPF_TRACE_FEXIT_MULTI|,
+\verb|BPF_TRACE_FENTRY_MULTI|, \path{BPF_TRACE_FEXIT_MULTI},
 \verb|BPF_TRACE_FSESSIONS_MULTI|. When an eBPF program that uses a trampoline is
 linked, the function \verb|bpf_trampoline_update()| is called which creates a
-page via \verb|arch_prepare_bpf_trampoline()|, setting up the stack environment
+page via \path{arch_prepare_bpf_trampoline()}, setting up the stack environment
 for the eBPF program including its arguments, its execution, restoring registers
 and finally returning to the target function.
 
@@ -593,7 +579,7 @@ __bpf_kfunc_end_defs();
 \end{Verbatim}
 
 The function needs to be declared between \verb|__bpf_kfunc_start_defs()| and
-\verb|__bpf_kfunc_end_defs()| on line $1$ and $9$ respectively, which remove
+\path{__bpf_kfunc_end_defs()} on line $1$ and $9$ respectively, which remove
 some compiler warnings. The \verb|__bpf_kfunc| specifies some linking options.
 They expand with the following code:
 
@@ -669,7 +655,7 @@ As maps are reference counted, they will stay in memory as long as there are
 users of them.
 
 Any map implements a set of operations specified in the \verb|struct bpf_map_ops|
-type as shown below from \textit{\$LINUX/include/linux/bpf.h}:
+type as shown below from \path{$LINUX/include/linux/bpf.h}:
 
 \begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
 struct bpf_map_ops {
@@ -702,7 +688,7 @@ these functions depends on how the specific map wants to handle the data.
 
 After defining the various operations for a map and defining static storage for
 a \verb|struct bpf_maps_ops|, the map is registered with all maps by appending
-its name to the \textit{\$LINUX/include/linux/bpf\_types.h} in the macro
+its name to the \path{$LINUX/include/linux/bpf_types.h} in the macro
 \verb|BPF_MAP_TYPE()|. All map entries from this file will be saved in a global
 array of maps in the following manner:
 
@@ -760,9 +746,127 @@ int bpf_lookup_elem(int fd, const void *key, void *value)
 
 \section{BTF and CO-RE}
 
-TODO
+In order to help developers to debug a program, compilers support the generation
+of debugging information from the source code. Such information may include:
+names, types, function signatures and any language-specific meta data that can
+be used to pretty-print or to reference the original source code. On Linux, a
+standard format used by userspace programs for encoding debug information is
+\textit{DWARF}. For example, both gcc and clang compilers generate debug
+information in the DWARF format if the \verb|-g| flag is specified. Many other
+compilers use DWARF as the default encoding for debug information, such as the
+\textit{go} and \textit{rust} compiler; this is because DWARF was designed to be
+a generic and expressive format that can be applied with many languages.
+Developers of eBPF programs are also interested in expressive debug information,
+however, the DWARF format was considered too complex and verbose due to its
+design decisions; inspired by the minimalistic and compact design of
+\textit{Compact C Type Format} (CTF) developed by Sun Microsystems in Solaris 9,
+a custom format was developed specifically for eBPF: the \textit{BPF Type
+Format} (BTF). BTF encodes information for all the necessary types, such as
+unions, structs, enums, typesefs, etc, and can be used to pretty-print eBPF
+maps, functions and structs, among other things. Compilers usually embeds them
+in the \verb|.BTF| ELF section of the eBPF program. The details of the format
+are documented in the Linux kernel documentation.
 
-Status: done researching this section, needs to be written
+For example, consider the following code:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+struct foo {
+  int a;
+  int b;
+  unsigned c:15;
+} __attribute__((preserve_access_index));
+
+enum bar { U, V };
+\end{Verbatim}
+
+Given the code above, clang will generate the following BTF information, qpshown
+in an human readable form:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+ [2] STRUCT 'foo' size=8 vlen=2
+        'a' type_id=3 bits_offset=0
+        'b' type_id=3 bits_offset=32
+        'c' type_id=4 bits_offset=64 bitfield_size=15
+ [3] INT 'int' size=4 bits_offset=0 nr_bits=32 encoding=SIGNED
+ [4] INT 'unsigned int' size=4 bits_offset=0 nr_bits=32 encoding=(none)
+ ...
+ [16] ENUM 'bar' encoding=UNSIGNED size=4 vlen=2
+        'U' val=0
+        'V' val=1
+\end{Verbatim}
+
+Form the clang output we can see that the name and the size of the struct is
+saved in line 1, along with the information of its members and their offsets.
+Each type is assigned an unique number \verb|type_id| which is used to reference
+the type.
+
+Indeed each type's debug information is encoded in the following compact format,
+from \path{$LINUX/include/uapi/linux/btf.h}:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+struct btf_type {
+	__u32 name_off;
+	/* "info" bits arrangement
+	 * bits  0-23: vlen (e.g. # of struct's members)
+	 * bits 24-30: kind (e.g. int, ptr, array...etc)
+	 * bit     31: kind_flag, currently used by
+	 *             struct, union, enum, fwd, enum64,
+	 *             decl_tag and type_tag
+	 */
+	__u32 info;
+	/* "size" is used by INT, ENUM, STRUCT, UNION, DATASEC and ENUM64.
+	 * "size" tells the size of the type it is describing.
+	 *
+	 * "type" is used by PTR, TYPEDEF, VOLATILE, CONST, RESTRICT,
+	 * FUNC, FUNC_PROTO, VAR, DECL_TAG and TYPE_TAG.
+	 * "type" is a type_id referring to another type.
+	 */
+	union {
+		__u32 size;
+		__u32 type;
+	};
+};
+\end{Verbatim}
+
+BTF provides useful metadata to debug eBPF programs, but another important
+use-case was found for the same information, which is not discussed.
+
+While the eBPF sybsystem provides a stable sandbox for eBPF programs, an issue
+appears when we have programs that interact with the rest of the kernel's types
+and structures, such as programs that attach to kprobes and traceporints. The
+kernel's internal API is famously unstable, which allows for fast development,
+code refactoring and decreases technical debth over time. However, this decision
+makes it difficult to distribute external code that is loaded in the kernel;
+kernel modules have a strict requirement that they need to be compiled for the
+same kernel version as the kernel they are loaded with for this exact reason,
+which is unconvenient. Due to the popularity and usefullness of eBPF a new
+system was designed.
+
+A first solution to this problem was attempted by the \textit{BPF Compiler
+Collection} (BCC). The approac was to distribute C source code directly, then
+compiled on the target machine. This technically worked but it required the
+entire compilation toolchain (clang/LLVM) to be installed on the host machine.
+Since LLVM is considered an heavy dependency, a new solution had to be designed.
+
+The new approach was called \textit{Compile Once, Run Everywhere} (CO-RE) and is
+based on relocations, like the ones used when linking a program. The key idea is
+to mark memory accesses as relocatable items, which are resolved by the loader
+program using BTF information before loading the program. This can be performed
+by a self contained executable without requiring heavy dependencies. In order to
+resolve the relocations, the loader needs to know the BPF bytecode of the
+program, its relocation records, and the BTF information of all kernel types and
+symbols. This last data is exposed to userspace via the files
+\path{$SYSFS/kernel/btf/vmlinux} and \path{$SYSFS/kernel/btf/$MODULE} for
+dynamically loaded modules. With this approach, if the address of a member in a
+struct changes, then the relocation will take care of setting the right offset
+before the program is loaded, leveraging BTF information in order to make the
+eBPF program portable across kernel versions. The main steps of this operation
+are now described. Before loading a program, the loader reads the program's
+relocation records which the compiler generated in the \verb|.BTF.ext| section.
+Then, it checks the current kernel's BTF information from the files in sysfs,
+and resolves the relocations using the BTF information. It finally loads the
+final progam via the bpf systemcall. The kernel is completely CO-RE agnostic
+since the relocations are done in userspace by libbpf.
 
 \section{Security Considerations}
 
