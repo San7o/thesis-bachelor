@@ -291,7 +291,7 @@ both systemcall name and its arguments to a tracing framework, for any
 systemcall. An explaination of the implementation is now provided.
 
 A systemcall is defined by the \verb|SYSCALL_DEFINEX()| family of macros. Taking
-\verb|SYSCALL_DEFINE0()| as an example, the macro expands to the following code
+\path{SYSCALL_DEFINE0()} as an example, the macro expands to the following code
 on x86, extracted from
 \path{$LINUX/arch/x86/include/asm/syscall_wrapper.h:244}:
 
@@ -333,8 +333,8 @@ following code, extracted from \path{\$LINUX/include/linux/syscalls.h:178}:
    *__p_syscall_meta_##sname = &__syscall_meta_##sname;
 \end{Verbatim}
 
-On line 8 and 9 the macros \verb|SYSCALL_TRACE_ENTER_EVENT()| and
-\verb|SYSCALL_TRACE_EXIT_EVENT()| are responsible for creating the tracepoint,
+On line 8 and 9 the macros \path{SYSCALL_TRACE_ENTER_EVENT()} and
+\path{SYSCALL_TRACE_EXIT_EVENT()} are responsible for creating the tracepoint,
 and on line 10 a \verb|struct syscall_metadata| is created which is used to save
 some information about the syscall and its arguments. Finally on line 21 a
 pointer to the metadata struct is created in the section
@@ -627,7 +627,7 @@ following logic:
 \begin{itemize}
 
   \item If \verb|current_kprobe| is empty, meaning that a kprobe is not running,
-    then it sets \verb|current_kprobe|. If specified, it calls the
+    then it sets \path{current_kprobe}. If specified, it calls the
     \verb|kp->pre_handler| and proceeds to emulate the probed instruction and
     call the post handler, or to setup the CPU's instruction pointer to the
     original instruction. In this case, the instruction pointer will be set when

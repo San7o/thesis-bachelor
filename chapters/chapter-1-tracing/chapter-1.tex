@@ -505,7 +505,7 @@ later chapter.
 \subsection{The perf\_event\_open() systemcall}
 
 The user mainly interacts with the perf subsystem through a custom systemcall:
-\verb|perf_event_open()|. Via this API, the user can access event counters or
+\path{perf_event_open()}. Via this API, the user can access event counters or
 the ring buffer, specifying the events to be traced and other information such
 as the context (for example, per per-thread or per-CPU). This systemcall does
 not have a \textit{libc} wrapper.
@@ -553,20 +553,40 @@ stricter or looser access checks, as described in the systemcall manual page.
 
 \section{Others}
 
-There are some vendor and use-case specific systems.
-
-TODO: expand this section
+There are other minor tracing frameworks for specific use-cases or maintained by
+vendors for their own hardware, both in and out of the kernel source tree.
+Some of these frameworks are reported below:
 
 \begin{itemize}
 
-  \item audit
-  \item systemtap
-  \item LTTng
-  \item ktap
-  \item dtrace4linux
-  \item DTrace
-  \item sysdig
+  \item \textit{audit}: a framework that provides records about
+    security-relevant events, logging other informatinon such as timestamps,
+    PID, etc. The user can specify some rules that, if matched, trigger a
+    security event. The audit framework provides several hooks in various parts
+    of the kernel, such as when entering a systemcall, when an inode is
+    modified, when a task is created, etc. It communicates to userspace via
+    netlink.
+
+  \item \textit{syslog}: ring buffer used for debug messages and logging. Data
+    is produced via \verb|printk()| and can be consumed in userspace from
+    \path{$PROCFS/kmsg}.
+
+  \item \textit{coresight}: tracing framework for ARM-based SoC, managing
+    hardware-specific "sources", "links" and "sinks". It integrates also with
+    perf.
+
+  \item \textit{MIPI system trace module (STM)}: tracing framework based on
+    MIPI specifications that allows kernel drivers and userspace to output
+    software trace messages directly into hardware trace modules via character
+    devices, routing data through physical debug pins or hardware sinks.
+
+  \item \textit{relayfs}: transport infrastructure that provides efficient
+    per-CPU memory-mapped ring buffers to transfer large volumes of trace data
+    from kernel space to userspace, bypassing traditional filesystem overhead.
+
+  \item \textit{blktrace}: specialized tracing framework for the block layer
+    that hooks directly into request queues to capture the complete lifecycle of
+    I/O requests from creation to completion, exporting event data to userspace
+    via relay channels.
 
 \end{itemize}
-
-TODO: give an overview of these systems

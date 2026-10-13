@@ -390,7 +390,8 @@ The simulation begins with \verb|do_check_main()|. At the very start, the only
 valid register to be accessed is \verb|R1| of type \verb|PTR_TO_CTX| which can
 be used to read a \verb|struct bpf_context| containing various information about
 the program depending on the program type. The verifier keeps the state of the
-simulation by allocating a \verb|struct bpf_verifier_state| and \verb|struct bpf_func_state|.
+simulation by allocating a \verb|struct bpf_verifier_state| and \path{struct
+bpf_func_state}.
 It proceeds to call \verb|do_check| which calls
 \verb|do_check_insn| for each instruction of the program; this performs all
 checks for an instruction, such as bound checks and type compatibility checks.
@@ -569,7 +570,8 @@ The following code defines the kfunc \verb|bpf_list_add()|:
 \begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
 __bpf_kfunc_start_defs();
 
-__bpf_kfunc int bpf_list_add(struct bpf_list_head *head, struct bpf_list_node *new,
+__bpf_kfunc int bpf_list_add(struct bpf_list_head *head,
+           struct bpf_list_node *new,
            struct bpf_list_node *prev__nonown_allowed,
            struct btf_struct_meta *meta, u64 off) {
   /* ... */
@@ -669,7 +671,7 @@ struct bpf_map_ops {
   /* ... */
   /* funcs callable from userspace and from eBPF programs */
   void *(*map_lookup_elem)(struct bpf_map *map, void *key);
-  long (*map_update_elem)(struct bpf_map *map, void *key, void *value, u64 flags);
+  long (*map_update_elem)(struct bpf_map *map, void *key, void *value, ...);
   long (*map_delete_elem)(struct bpf_map *map, void *key);
   long (*map_push_elem)(struct bpf_map *map, void *value, u64 flags);
   long (*map_pop_elem)(struct bpf_map *map, void *value);
@@ -687,7 +689,7 @@ similar ones are used to modify its contents. The specific implementation of
 these functions depends on how the specific map wants to handle the data.
 
 After defining the various operations for a map and defining static storage for
-a \verb|struct bpf_maps_ops|, the map is registered with all maps by appending
+a \path{struct bpf_maps_ops}, the map is registered with all maps by appending
 its name to the \path{$LINUX/include/linux/bpf_types.h} in the macro
 \verb|BPF_MAP_TYPE()|. All map entries from this file will be saved in a global
 array of maps in the following manner:
