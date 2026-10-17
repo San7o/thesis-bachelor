@@ -872,12 +872,127 @@ since the relocations are done in userspace by libbpf.
 
 \section{Security Considerations}
 
-TODO
+Since eBPF program are JIT compiled and executed as kernel code, several
+security implications need to be addressed. An external attacker may compromise
+an user with permissions to load eBPF program and modify maps, or it may
+compromise an eBPF program that is being loaded by a privileged process. This
+section models these two scenarios, analyzes the impact on the CIA triad
+(confidentiality, integrity, availability), and explores some security hardening
+solutions aimed to mitigate these attacks and decrease risk. Several
+vulnerabilities on the implementation of several parts of the eBPF subsystem
+have been found \cite{ebpf_security} such as CVE-2016-4557 \cite{cve20164557}
+and CVE-2021-3490 \cite{cve20213490}. This section focuses on the security of
+the architecture instead of particular implementation bugs.
 
-Status: done researching this section, needs to be written
+Now suppose that an attacker is able to load an arbitrary eBPF program or tamper
+with the execution of other eBPF programs by reading or writing to their maps.
+This could happen, for example, by compromising a privileged user or a
+privileged process that grants elevated permissions to the attacker. The
+abilities of such actor would be based on the type of program begin loaded, and
+are quite broad:
 
-\section{Use Cases and modern ecosystem}
+\begin{itemize}
 
-TODO
+  \item \textit{Confidentiality}: the verifier only ensures that an eBPF program
+    of a certain type reads a limited set of well-defined resources, thereby
+    restricting the scope of the attack. Still, eBPF program can pose a
+    confidentiality issue. For example, an XDP program could read unencrypted
+    information on the network, such as passwords or other data which may be
+    confidential; a kprobe program could read values from registers and a
+    tracepoint program could read an event's data, which may contain
+    confidential information.
 
-Status: done researching this section, needs to be written
+  \item \textit{Integrity}: the verifier checks that an eBPF program only writes
+    to where it is supposed to do, so a program cannot modify arbitrary memory.
+    Yet, an XDP eBPF program can rewrite the contents of network packets.
+
+  \item \textit{Availability}: the verifier asserts that an eBPF program
+    terminates, so that an eBPF program is not able to completely halt the
+    system. However, programs can still cause meaningful availability
+    disruption. For example, some types of programs can drop network packets,
+    thereby making the host unreachable through the network. LSM programs can
+    deny permissions to perform various types of operations to other users, such
+    as blocking systemcalls. Intentionally slow and memory-heavy eBPF programs
+    can slow down the system and take available memory.
+
+\end{itemize}
+
+This analysis shows that an attacker with high privileges can meaningfully
+tamper with the system and pose a security threat. Therefore, defenders should
+always follow the principle of least privileges by limiting the capabilities of
+an user to be as restrictive as possible. eBPF provides several solutions to
+harder the system and restrict usage, which are explained next.
+
+\subsubsection*{Capabilities}
+
+A common security safeguard is to fully disable access to eBPF programs for
+unprivileged users by setting the kernel parameter
+\path{kernel.unprivileged_bpf_disabled} to true (1), which is the default in
+most Linux distributions. Users can get different levels of privileges through
+Linux \textit{capabilities}, which are per-thread attributes used for fine
+grained access control: if unprivileged users are disabled, then only users with
+the \path{CAP_BPF} or \path{CAP_SYS_ADMIN} capabilities can load programs.
+Additional capabilities are needed to load specific eBPF programs; for example,
+\path{CAP_NET_ADMIN} is required to load networking programs, and
+\path{CAP_PERFMON} is necessary for tracing programs. This limits the operations
+that an user is able to perform, reducing risk.
+
+\subsubsection*{eBPF tokens}
+
+eBPF supports delegating some functionalities from a privileged process to an
+unprivileged one thought a system of \textit{tokens}. The unprivileged process
+will be able to perform only the operations that were specifically allowed. An
+example use-case would be for a container runtime that gives specific
+permissions to the container based on the workload's needs.
+
+\subsubsection*{LSM policies}
+
+More sophisticated policies can be implemented though a Linux Security Module
+because of the many security hooks placed where the user interacts with the eBPF
+subsystem. An LSM policy can deny or allow certain operations. For example, a
+policy could block the loading of any eBPF program that tampers with network
+traffic, it could also allow only eBPF programs that do read-only tracing, or
+implement additional access control checks to verify that the user is
+legitimate. This again limits or eliminates the possible misuse of eBPF.
+
+\subsubsection*{eBPF Program signing}
+
+Suppose the attacker is able to control or modify the eBPF program that a
+privileged loader will load on the kernel. The loader may have the necessary
+permissions to load an eBPF program that interacts with the network, so an
+attacker may tamper the eBPF program to perform availability or confidentiality
+attacks.
+
+To protect the operating system against these types of attacks, a technique
+called \textit{program signing} was introduced. The idea is to allow only the
+loading of signed eBPF programs from an accepted key, similarly to how kernel
+modules are signed. This ensures that only programs released by trusted authors
+are loaded. Implementing this policy is not straight forward: due to CO-RE and
+other dynamic behaviour, eBPF programs are modified before being loaded by the
+loader to perform relocations and other necessary operations. Consequently, the
+program that is being distributed is not the same program that is loaded, and
+checking the signature only at load time would not be possible. This issue has
+been highly discussed and practical solutions are still being debated. The
+current proposal leverages a chain of trust between the kernel and the loader;
+the idea is based on a \textit{trusted hash chain}: first, metadata of an eBPF
+program is hashed, then the code of the loader for that particular program is
+hashed and signed together with the hash of the eBPF program, finally the kernel
+will check that the hash of the loader is signed with a trusted key. This final
+signature check happens when loading the eBPF program, but before the LSM hook.
+This chain makes sure that a trusted loader is able to load only a trusted
+program and perform the necessary relocations. Other details are still evolving.
+
+\section{eBPF in production}
+
+eBPF is being leveraged in many contexts and by major institutions. For example,
+a Linux Foundation document \cite{linuxfoundation2026ebpf} reported that S\&P
+Global, Ikea, Sky, Alibaba and Red Hat use eBPF-based solutions for network
+optimization; Google, Netflix, Microsoft, Linkedin and others highly rely on
+eBPF for deep network observability; Shopify and Apple actively use eBPF for
+runtime security and policy enforcement.
+
+Cloudflare used eBPF to quickly patch vulnerable Linux machines from a critical
+kernel exploit without rebooting their systems \cite{arges2026copyfail}.
+eBPF-based schedulers were shown to outperform the default Linux scheduler
+\cite{ebpfscheduling} and are being deployed for large production workloads at
+Meta \cite{heo2024schedext}.

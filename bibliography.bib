@@ -87,3 +87,85 @@
   keywords  = {Abstract interpretation, Program verification, Program synthesis, Kernel extensions, eBPF},
   location  = {Paris, France}
 }
+
+@inproceedings{ebpf_security,
+  author = {Mohamed, Mohamed Husain Noor and Wang, Xiaoguang and Ravindran, Binoy},
+  title = {Understanding the Security of Linux eBPF Subsystem},
+  year = {2023},
+  isbn = {9798400703058},
+  publisher = {Association for Computing Machinery},
+  address = {New York, NY, USA},
+  url = {https://doi.org/10.1145/3609510.3609822},
+  doi = {10.1145/3609510.3609822},
+  abstract = {Linux eBPF allows a userspace application to execute code inside the Linux kernel without modifying the kernel code or inserting a kernel module. An in-kernel eBPF verifier pre-verifies any untrusted eBPF bytecode before running it in kernel context. Currently, users trust the verifier to block malicious bytecode from being executed.This paper studied the potential security issues from existing eBPF-related CVEs. Next, we present a generation-based eBPF fuzzer that generates syntactically and semantically valid eBPF programs to find bugs in the verifier component of the Linux kernel eBPF subsystem. The fuzzer extends the Linux Kernel Library (LKL) project to run multiple lightweight Linux instances simultaneously, with inputs from the automatically generated eBPF instruction sequences. Using this fuzzer, we can outperform the bpf-fuzzer [10] from the iovisor GitHub repository regarding fuzzing speed and the success rate of passing the eBPF verifier (valid generated code). We also found two existing ALU range-tracking bugs that appeared in an older Linux kernel (v5.10).},
+  booktitle = {Proceedings of the 14th ACM SIGOPS Asia-Pacific Workshop on Systems},
+  pages = {87–92},
+numpages = {6},
+  keywords = {Linux eBPF, Kernel Security, Fuzzing},
+  location = {Seoul, Republic of Korea},
+  series = {APSys '23}
+}
+
+@misc{cve20164557,
+  author       = {{MITRE}},
+  title        = {{CVE-2016-4557} Record},
+  howpublished = {\url{https://www.cve.org/CVERecord?id=CVE-2016-4557}},
+  year         = {2016},
+  note         = {Accessed: 2026-10-16}
+}
+
+@misc{cve20213490,
+  author       = {{MITRE}},
+  title        = {{CVE-2021-3490} Record},
+  howpublished = {\url{https://www.cve.org/CVERecord?id=CVE-2021-3490}},
+  year         = {2021},
+  note         = {Accessed: 2026-10-16}
+}
+
+@techreport{linuxfoundation2026ebpf,
+  author      = {Bill Doerrfeld},
+  title       = {{eBPF In Production Report}},
+  institution = {The Linux Foundation / eBPF Foundation},
+  year        = {2026},
+  month       = {February},
+  url         = {https://www.linuxfoundation.org/hubfs/eBPF/eBPF%20In%20Production%20Report.pdf},
+  note        = {Accessed: 2026-10-18}
+}
+
+@misc{arges2026copyfail,
+  author       = {Chris J. Arges and Sourov Zaman and Rian Islam},
+  title        = {{How Cloudflare responded to the ``Copy Fail'' Linux vulnerability}},
+  howpublished = {Cloudflare Blog},
+  year         = {2026},
+  month        = {May},
+  url          = {https://blog.cloudflare.com/copy-fail-linux-vulnerability-mitigation/},
+  note         = {Accessed: 2026-10-18}
+}
+
+@inproceedings{ebpfscheduling,
+author = {Akbari, Saman and Hauswirth, Manfred},
+title = {Towards High-Performance eBPF-based OS Scheduling for Serverless Functions},
+year = {2026},
+isbn = {9798400729126},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3838177.3841724},
+doi = {10.1145/3838177.3841724},
+abstract = {The Linux default scheduler's fairness-oriented design frequently preempts short-running serverless functions, degrading Function-as-a-Service (FaaS) performance and increasing user costs. Existing solutions to remedy this problem propose custom OS scheduling policies based on custom kernels, external frameworks, or user-space polling. To address these limitations, we explore sched_ext, a recent Linux kernel feature providing an extensible scheduler framework via the Extended Berkeley Packet Filter (eBPF). We evaluate 11 prebuilt sched_ext schedulers under production-like FaaS workloads and show that 9 out of 11 policies outperform the default Linux scheduler (EEVDF) in both performance and user costs, reducing turnaround time by up to 61.1\% and user costs by up to 51.3\%. In this work, we demonstrate the significant impact of OS scheduling on FaaS environments and identify successful mechanisms to guide the design of future specialized schedulers.},
+booktitle = {Proceedings of the 17th ACM SIGOPS Asia-Pacific Workshop on Systems},
+pages = {8–14},
+numpages = {7},
+keywords = {serverless computing, function-as-a-service, OS scheduling, eBPF, sched_ext, Linux extensible scheduler},
+location = {Bangkok, Thailand},
+series = {APSys '26}
+}
+
+@misc{heo2024schedext,
+  author       = {Tejun Heo},
+  title        = {{sched: Implement BPF extensible scheduler class}},
+  howpublished = {LWN.net},
+  year         = {2024},
+  month        = {May},
+  url          = {https://lwn.net/Articles/972075/},
+  note         = {Accessed: 2026-10-18}
+}

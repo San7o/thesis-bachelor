@@ -1140,6 +1140,15 @@ But we have a supply chain attack (integrity) problem.
 
 This solves supply chain attacks.
 
+Unprivileged processes (CAP_SYS_ADMIN, CAP_BPF) can be disallowed to load eBPF
+progrmas (default on most distros) with kernel.unprivileged_bpf_disabled=0
+
+Bug in the implementation have lead to exploits:
+
+    https://www.invicti.com/blog/web-security/ebpf-vulnerabilities-ecosystem-and-security-model
+
+    https://dl.acm.org/doi/epdf/10.1145/3609510.3609822
+
 The problem: if we sign an eBPF program after compilation, then the programm
 will be altered by CORE relocations, updating maps file descriptors and other
 things so the signature is not valid anymore. This issue for signing has been
@@ -1332,3 +1341,5 @@ increasingly, cloud native world."
 Some other data about eBPF in production:
 
 https://ebpf.foundation/new-ebpf-in-production-report-showcases-production-enterprise-outcomes-across-networking-security-and-observability/
+
+This report is amazing!!!!!
