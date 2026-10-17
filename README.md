@@ -2,4 +2,18 @@
 
 <h3 align="center">A Deep Dive from Traditional Frameworks to eBPF-Driven Observability</h3>
 
-My thesis.
+Observability and deep kernel visibility are essential for maintaining the
+performance, reliability, and security of modern operating systems. Linux
+supports a vast number of powerful tracing capabilities to achieve this: over
+the history of the operating system, multiple frameworks and event sources have
+been introduced for different use cases. Due to the size and complexity of the
+Linux kernel, these capabilities are often poorly understood by developers and
+frequently associated with "black magic." To demystify this landscape, an
+analysis of the Linux kernel codebase was conducted, gathering information
+through source code, git commits, mailing lists, technical articles, and
+conference talks. This work presents a comprehensive description of the tracing
+infrastructure provided by Linux kernel version 7.2, focusing on traditional
+frameworks like Ftrace and Perf, event sources like tracepoints and kprobes, and
+modern developments through eBPF. Finally, a real-world use case for eBPF in
+containerized environments is studied, introducing Kivebpf as an application
+that leverages modern Linux tracing infrastructure.
