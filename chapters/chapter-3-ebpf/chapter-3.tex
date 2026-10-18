@@ -9,7 +9,7 @@ TODO: some history of eBPF
 
 TODO: explain how eBPF connects with the rest of the tracing infrastructure
 
-TODO: general overview of the eBPF architecture: system call, verifyier, program
+TODO: general overview of the eBPF architecture: system call, verifier, program
 types
 
 TODO: example program
@@ -492,7 +492,7 @@ which depends upon the program type. For example, a program of type
 section, and a program of type \verb|BPF_PROG_TYPE_CGROUP_SKB| is put in the
 \verb|cgroup/skb| ELF section. This trick allows to specify multiple programs of
 different types in the same ELF binary, and it is used by libbpf to provide a
-set of convenient APIs for the eBPF program developer.
+set of convenient APIs for eBPF program developers.
 
 \subsection{Attach points}
 
@@ -526,21 +526,168 @@ and finally returning to the target function.
 
 Some example eBPF program types are now analyzed.
 
-\subsection{BPF\_PROG\_TYPE\_KPROBE}
-
-TODO
-
 \subsection{BPF\_PROG\_TYPE\_XDP}
 
-TODO
+\textit{Express Data Path} (XDP) programs are called by a network device driver
+for every incoming packet received, before allocating the \verb|struct sk_buff|
+and before passing the packet up the network stack. An XDP program can access a
+\verb|struct xdp_md| representing a single packet, and has the capability to
+manipulate, drop, redirect or accept it. The early invocation of the eBPF
+program in the lifetime of a packet, before any other allocations or processing,
+makes XDP programs particularly useful for a range of use cases: DDoS
+protection, load balancing, high-throughput packet filtering, etc.
+
+The \verb|struct xdp_md| is reported below:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+struct xdp_md {
+  __u32 data;
+  __u32 data_end;
+  __u32 data_meta;
+  // Below access go through struct xdp_rxq_info
+  __u32 ingress_ifindex; // rxq->dev->ifindex
+  __u32 rx_queue_index;  // rxq->queue_index
+
+  __u32 egress_ifindex;  // txq->dev->ifindex
+};
+\end{Verbatim}
+
+Where \verb|data| and \verb|data_end| on lines $2$ and $3$ are pointers to
+memory where the packet can be accessed. The verifier will ensure that only
+memory in the range $[data; data\_end)$ will be dereferenced.
+
+If a network interface driver supports XDP, it will call it when processing
+packets via NAPI, the call stack looks like the following:
+
+\begin{verbatim}
+__napi_busy_loop
+  -> napi_poll         # Pool new packets
+    -> __napi_poll
+      -> struct napi_struct->poll
+        # Driver specific functions for the Intel i40e
+        -> i40e_napi_poll
+          -> i40e_clean_rx_irq
+             -> i40e_run_xdp
+               -> bpf_prog_run_xdp  # Calls XDP program
+\end{verbatim}
+
+For example, an XDP eBPF program that blocks all TCP/IP traffic reaching port
+$1234$ looks like this:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#include <vmlinux.h>
+#include <bpf/bpf_core_read.h>
+#include <bpf/bpf_endian.h>
+#include <bpf/bpf_helpers.h>
+
+char LICENSE[] SEC("license") = "GPL";
+
+/* IEEE 802.3 Ethernet magic constants, found in
+ * linux/include/uapi/linux/if_ether.h */
+#define ETH_P_IP   0x0800    /* Internet Protocol packet */
+
+/* IANA protocol numbers */
+#define TCP_PROTO_NUMBER  0x06
+
+SEC("xdp")
+int handle_xdp(struct xdp_md *ctx)
+{
+  void *data_end = (void*)(long)ctx->data_end;
+  void *data     = (void*)(long)ctx->data;
+
+  /* ethernet frame */
+  struct ethhdr *eth = data;
+  if ((void*)(eth+1) > data_end)
+    return XDP_PASS;
+
+  if (eth->h_proto == bpf_htons(ETH_P_IP)) {
+
+    /* ip packet */
+    struct iphdr *ip = (void*)(eth + 1);
+    if ((void*)(ip + 1) > data_end)
+      return XDP_PASS;
+
+    if (ip->protocol != TCP_PROTO_NUMBER) /* Only interested in TCP */
+      return XDP_PASS;
+
+    /* TCP segment */
+    struct tcphdr *tcp = (void*)ip + ip->ihl * 4;
+    if ((void*)(tcp + 1) > data_end)
+      return XDP_PASS;
+
+    /* Drop the packet */
+    if (tcp->dest == bpf_htons(1234))
+      return XDP_DROP;
+  }
+
+  /* Accept the packet */
+  return XDP_PASS;
+}
+\end{Verbatim}
+
+\subsection{BPF\_PROG\_TYPE\_TRACEPOINT}
+
+Tracepoint eBPF programs use the pre-existing tracepoint infrastructure to call
+eBPF programs. A program can be attached to a tracepoint and access the context
+that the regular tracepoint captures.
+
+For example, the following program traces all calls to the \verb|write()|
+systemcall from a specific process specified by the loader via the variable
+\verb|target_pid|:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#include <vmlinux.h>
+#include <bpf/bpf_helpers.h>
+
+char LICENSE[] SEC("license") = "GPL";
+
+int target_pid = 0;
+
+SEC("tp/syscalls/sys_enter_write")
+int handle_tp(struct trace_event_raw_sys_enter *ctx)
+{
+    int pid = bpf_get_current_pid_tgid() >> 32;
+
+    if (pid != target_pid)
+        return 0;
+
+    bpf_printk("BPF: write() syscall called from PID %d.\n", pid);
+
+    return 0;
+}
+\end{Verbatim}
 
 \subsection{BPF\_PROG\_TYPE\_LSM}
 
-TODO
+LSM eBPF programs are attached to LSM hooks. Whenever the hook is fired, the
+eBPF program is executed and can access whatever the LSM hook provides. LSM eBPF
+programs can be chained together to support the enforcement of multiple
+policies, and each program can access the security decision from the previous
+one and decide to propagate it to the next one or to ignore it. For example, the
+following eBPF program logs and blocks all calls to the \verb|bpf()| systemcall:
 
-\subsection{BPF\_PROG\_TYPE\_STRUCT\_OPS}
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#include <vmlinux.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
 
-TODO
+char LICENSE[] SEC("license") = "GPL";
+
+#define EPERM 1
+
+/* The "ret" argument is the return value from the previous BPF program or
+ * 0 if it is the first hook */
+SEC("lsm/bpf")
+int BPF_PROG(lsm_bpf, int cmd, union bpf_attr *attr,
+             unsigned int size, int ret)
+{
+    if (ret != 0)
+        return ret;
+
+    bpf_printk("BPF LSM: blocked bpf()");
+    return -EPERM;
+}
+\end{Verbatim}
 
 \section{Helper functions and Kfuncs}
 
@@ -689,7 +836,7 @@ similar ones are used to modify its contents. The specific implementation of
 these functions depends on how the specific map wants to handle the data.
 
 After defining the various operations for a map and defining static storage for
-a \path{struct bpf_maps_ops}, the map is registered with all maps by appending
+a \verb|struct bpf_maps_ops|, the map is registered with all maps by appending
 its name to the \path{$LINUX/include/linux/bpf_types.h} in the macro
 \verb|BPF_MAP_TYPE()|. All map entries from this file will be saved in a global
 array of maps in the following manner:

@@ -8,7 +8,7 @@ supports a vast number of powerful tracing capabilities to achieve this: over
 the history of the operating system, multiple frameworks and event sources have
 been introduced for different use cases. Due to the size and complexity of the
 Linux kernel, these capabilities are often poorly understood by developers and
-frequently associated with "black magic." To demystify this landscape, an
+frequently associated with "black magic". To demystify this landscape, an
 analysis of the Linux kernel codebase was conducted, gathering information
 through source code, git commits, mailing lists, technical articles, and
 conference talks. This work presents a comprehensive description of the tracing
