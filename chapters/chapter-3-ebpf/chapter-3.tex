@@ -1,18 +1,55 @@
 \chapter{eBPF}
 
+Dynamic event tracing using kprobes gave a powerful tool to developers since
+they could hook custom logic anywhere in the kernel. However, placing a kprobe
+requires loading a kernel module which could meaningfully break the system in
+case of bugs: since kernel modules run as kernel code, they have the same
+capabilities as the kernel, posing a great security risk. The same issues are
+presented when extending the tracing infrastructure or other parts of the kernel
+in order to fit specific needs and run custom logic. The need for an alternative
+solution to extend the kernel with a more sound security model resulted into the
+modern eBPF subsystem, which is the subject of this chapter.
+
 \section{Introduction and overview}
 
-TODO: introduction on eBPF, as the modern solution for dynamic tracing and
-observability
+The \textit{eBPF subsystem} provides the infrastructure to load custom programs,
+called \textit{eBPF programs}, by a \textit{loader} program into the kernel, but
+only after being checked by a \textit{verifier} which enforces a set of security
+requirements onto the program, making sure that the eBPF program interacts with
+the rest of the operating system only through a set of well-defined APIs
+provided by the eBPF subsystem. After being loaded, eBPF programs are executed
+whenever a certain event happen, which is determined by the \textit{type} of the
+program; for example, an eBPF program may be attached to a kprobe or a
+tracepoint, and be invoked when that kprobe is fired. Many other hook
+possibilities are available, such as when a packet is received on the network,
+or when the scheduler needs to take a scheduling decision; the eBPF program can
+then implement custom logic to handle the event, but only though a well-defined
+interface. The type of the program also determines which APIs are available to
+the program. eBPF programs are written in a dedicated instruction set
+architecture and just-in-time compiled into native instructions. User-to-eBPF
+and eBPF-to-eBPF interactions are handled via shared memory regions called
+\textit{maps} which provide different types of data structures for the programs.
+These components are described in more detail in the rest of the chapter.
 
-TODO: some history of eBPF
+eBPF evolved from the \textit{Berkeley Packet Filter} (BPF), which allowed to
+load small programs to filter network requests. Modern \textit{extended} BPF can
+do much more than packet filtering, so the acronym lost its meaning. The legacy
+BPF system is now referred to as \textit{classic} BPF or \textit{cBPF}.
 
-TODO: explain how eBPF connects with the rest of the tracing infrastructure
+An user-space program can load eBPF programs and create maps via the
+\verb|bpf()| systemcall. The function signature is the following:
 
-TODO: general overview of the eBPF architecture: system call, verifier, program
-types
+\begin{verbatim}
+int bpf(int cmd, union bpf_attr *uattr, unsigned int size,
+        struct bpf_common_attr *uattr_common, unsigned int size_common);
+\end{verbatim}
 
-TODO: example program
+Where the "cmd" argument specifies the operation what the user wants to perofrm,
+and the contents of \path{union bpf_attr}.
+
+To develop eBPF programs, the officially maintained \textit{libbpf} library is
+often used, providing a set of useful functionalities to generate loaders and
+bindings for the program.
 
 \section{Instruction Set}
 
