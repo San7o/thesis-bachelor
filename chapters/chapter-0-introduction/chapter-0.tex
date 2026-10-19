@@ -1,11 +1,15 @@
 \chapter{Introduction}
 
-TODO: Do an introduction on tracing, observability, and its importance.
-
-TODO: describe the various layers of figure \ref{fig:linux_tracing_architecture}
-
-\input{chapters/chapter-0-introduction/figures/general-architecture-fig.tex}
-
+A \textit{trace} is a record of various information about the execution of a
+software program. Because modern operating systems are responsible of many
+critical tasks, such as interacting with network and storage devices, or to
+virtualise and sandbox untrusted processes, it is natural that deep and dynamic
+kernel \textit{tracing} is an important features of an operating system. In
+fact, tracing is useful for many use cases, including performance evaluation and
+optimization, security and policy enforcement, and observability, among others.
+The objective of this work is to understand the systems and interfaces
+implemented in Linux to perform high-throughput tracing of events, as of version
+7.2 of the kernel released on 16 August 2026.
 
 Chapter 2 provides a description of classic Linux tracing framewors, focusing on
 the two most used ones: \textit{ftrace} and \textit{perf}. Chapter 3 describes
@@ -13,22 +17,134 @@ the events that are supported on Linux. Chapter 4 focuses on eBPF. Chapter 5
 introduces \textit{Kevebpf} as a modern tracing application. Chapter 6 closes
 with the conclusions.
 
-TODO: an overview of frontends:
+Artificial intelligence, more specifically Large Language Models, was used to
+gather information from the internet, and to check the writing quality of
+limited parts of this work.
+
+\section{The tracing stack}
+
+An high level view of the tracing architecture supported by Linux is now
+presented. The architecture can be conceptually divided into a stack of multiple
+abstraction layers, where each abstraction interacts with the one over it and
+below it in both directions through a well-defined interface. Each conceptual
+layer contains several components which implement the logic for particular types
+of tracing. Figure \ref{fig:linux_tracing_architecture} visually shows the
+architecture.
+
+\input{chapters/chapter-0-introduction/figures/general-architecture-fig.tex}
+
+The layers and components are now described.
+
+\subsection{Event Sources}
+
+Event sources or simply \textit{events} represent the specific information in a
+moment in time being traced. They may be triggered by hardware or software
+components, and may capture various types of information such as timestamps,
+register values, function arguments, etc. The lifetime of an event is usually
+managed by the tracing framework, such as registration, activation, deactivation
+and removal; the event uses one or more tracing framework to produce its side
+effect and output trace information.
+
+Events are divided into \textit{static} and \textit{dynamic}. Static events are
+intentionally placed in the kernel code and are compiled into the kernel's
+binary, they include various forms of \textit{tracepoints} and
+\textit{perf events}. Dynamic events, instead, are created during runtime and
+may be placed in different parts of the kernel by the user, and example of
+dynamic events are \textit{kprobes}. A brief descriptions of these types of
+events is now provided:
 
 \begin{itemize}
 
-  \item trace-cmd
+  \item \textit{tracepoints}: static events placed in many paths of the kernel,
+    they execute a callback function which traces arbitrary values depending on
+    the particular tracepoint.
 
-  \item bpftrace
+  \item \textit{perf events}: performance event counters are hardware counters
+    that are incremented when certain events happen, like wrong branch
+    predictions or number of instructions fetched in a CPU. Perf counters may
+    also be in software.
 
-  \item systemtap
+  \item \textit{kprobes}: dynamic functions patched in the kernel code at
+    runtime which may trace arbitrary information.
 
-  \item perf-tools
+\end{itemize}
 
-  \item bcc
+\subsection{Tracing Frameworks}
 
-  \item strace
+\textit{Tracing frameworks} are important architectural components. They manage
+events and their outputs, and can be accessed and managed via a set of userspace
+interfaces. Different frameworks provide alternative ways to interact with the
+events based on the application's needs. Notable frameworks that will be studied
+in this work are:
 
-  \item ltrace
+\begin{itemize}
+
+  \item \textit{ftrace}: provides a single per-CPU global ring-buffer to hold
+    all traces.
+
+  \item \textit{perf}: used originally for performance counters, provides
+    per-CPU ring-buffers created at runtime via a systemcall and are memory
+    mapped to user-memory for high-throughput communication.
+
+  \item \textit{eBPF}: mechanism to load and verify custom programs into the
+    kernel, for tracing and observability reasons or to extend the
+    functionalities of the kernel with custom logic.
+
+\end{itemize}
+
+\subsection{User Interfaces}
+
+\textit{User interfaces} bridge the boundary between kernelspace and userspace.
+They provide a stable interface for the user to interact and with a tracing
+framework to access its functionalities. The interface can be implemented as a
+\textit{systemcall}, a dedicated \textit{pseudo filesystem}, via the
+\textit{network} such as though netlink, via \textit{block} or
+\textit{character} devices, though shared memory, or other means.
+
+\subsection{Frontends}
+
+\textit{Frontends} are meant to provide a convenient and intuitive interface to
+the user, compared to the low-level kernel-to-user boundary. Since fontends are
+not developed inside the kernel, may solutions were developed by different
+groups and for different use-cases. An example list is provided below:
+
+\begin{itemize}
+
+  \item \textit{trace-cmd}: command line tool to interact with the ftrace
+    tracer. It provides convenient commands such as "record" and "report" trace
+    data, "list" to list the available events that can be recorded, "hist" to
+    show an histogram of the events, and others.
+
+  \item \textit{bpftrace}: provides an high-level tracing language and runtime
+    absed on eBPF. For example, the code \path{kprobe:do_nanosleep { printf("\%d
+    sleeping\n", pid); }} creates a kprobe eBPF program on the
+    \path{do_nanosleep} function which logs the \verb|PID|.
+
+ \item \textit{systemtap}: provides a scripting language and instrumentation
+   framework for monitoring and analyzing the behavior of running Linux systems.
+    It allows users to define probes at kernel and user-space instrumentation
+    points and execute custom handlers to collect data and investigate system
+    behavior.
+
+  \item \textit{perf-tools}: a collection of Linux performance analysis tools
+    built primarily on ftrace and perf events. It includes scripts for tracing
+    system calls, examining kernel function execution, analyzing scheduling
+    behavior, and investigating block I/O activity.
+
+  \item \textit{bcc}: the BPF Compiler Collection provides a framework for
+    developing and running eBPF-based tracing and performance analysis tools. It
+    combines kernel instrumentation with user-space programs, typically written
+    in Python or C++, and includes utilities for analyzing processes, system
+    calls, networking, and other kernel activities.
+
+  \item \textit{strace}: a system-call tracing utility that monitors the system
+    calls and signals of a process. It can report system-call arguments, return
+    values, errors, and execution durations, making it useful for debugging
+    applications and investigating their interactions with the kernel.
+
+  \item \textit{ltrace}: a library-call tracing utility that monitors calls made
+    by a process to dynamically linked libraries. It can display function
+    arguments and return values, helping to investigate application behavior and
+    interactions with shared libraries.
 
 \end{itemize}
