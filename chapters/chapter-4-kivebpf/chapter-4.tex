@@ -1,21 +1,390 @@
 \chapter{Kivebpf}
 
-TODO: The design of the application is documented in the following link
-\url{https://san7o.github.io/kivebpf/DESIGN.html}. Language should be adapted
-for the thesis.
+In this chapter, an example eBPF application used for kernel-level tracing is
+presented: \textit{Kivebpf}.
 
 \section{Introduction}
 
-TODO
+Kivebpf is a kubernetes-native, eBPF-powered file access monitoring solution.
+The user of the application is able to select files to monitor using match
+queries, such as file paths and filters on Kubernetes pods or containers; when
+one of the monitored files is accessed, such as when it is read from or written
+to, the application will generate an alert.
 
-\section{Design Considerations}
+The application is implemented as a single Kubernetes operator and is structured
+into multiple components that interact with each other, Kubernetes or the
+operating systems.
+The code of the project is open source and available on GitHub
+\cite{san7o_kivebpf_code}, and the official documentation is also available
+online \cite{san7o_kivebpf_docs}. This chapter focuses on the eBPF program
+component of the application.
 
-TODO
+\subsection{Resources}
 
-\section{Architecture}
+\textit{Resources} are Kubernetes objects that are used to save state. They can
+be created or edited by the user and the application. When a resource is
+changed, the application will react to it and update itself if necessary via a
+mechanism called \textit{reconciliation}. Kivebpf registers two resources:
+\path{KivePolicy} and \path{KiveData}.
 
-TODO
+A \textit{KivePolicy} is created by the user of the application to place
+\textit{traps} on certain files living on Kubernetes pods. The user can specify
+match rules to place the trap on all pods that match certain conditions.
+
+A \path{KivePolicy} looks like this:
+
+\begin{verbatim}
+apiVersion: kivebpf.san7o.github.io/v1
+kind: KivePolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: kivebpf
+  name: kive-sample-policy
+  namespace: kivebpf-system
+spec:
+  alertVersion: v1
+  traps:
+    - path: /secret.txt
+      create: true
+      mode: 444
+      callback: "http://my-callback.com/alerts"
+      matchAny:
+      - pod: nginx-pod
+        namespace: default
+        ip: 192.168.0.3
+        containerName: "regex: .*"
+        matchLabels:
+          security-level: high
+      metadata:
+          severity: critical
+\end{verbatim}
+
+Where the "path" option specifies the path, which is going to be created if it
+does not exist when the "create" option is set to "true". The user can also
+specify a "callback" URL which will be used to send alerts. The match rules are
+specified with "matchAny", such as pod names, namespaces and labels.
+
+From a \path{KivePolicy}, the application generates various \path{KiveData}
+resources, one for each trap. This holds metadata and other information needed
+for the application to identify the file and generate the alert. A
+\path{KivePolicy} looks like the following:
+
+\begin{verbatim}
+apiVersion: kivebpf.san7o.github.io/v1
+kind: KiveData
+metadata:
+  annotations:
+    kive-alert-version: v1
+    kive-policy-name: kive-sample-policy
+    callback: ""
+    container-id: containerd://da9e46ae1873ec463...
+    container-name: nginx
+    namespace: default
+    node_name: kive-worker2
+    path: /secret.txt
+    pod_ip: 10.244.1.2
+    pod_name: nginx-pod
+  creationTimestamp: "2025-07-25T08:06:12Z"
+  generation: 1
+  name: kive-data-nginx-pod-default-13667586
+  namespace: kivebpf-system
+  resourceVersion: "23395"
+  uid: 788bcb67-a9de-480d-a179-e40234116459
+  labels:
+      trap-id: c4705ec263cc353100b6f18a12...
+      kernel-id: fc9a30d5-6140-4dd1-b8ef-c638f19ebd71
+spec:
+  inode-no: 13667586
+  dev-id: 3
+  metadata:
+    severity: critical
+\end{verbatim}
+
+\subsection{Alert}
+
+When a monitored file is accessed, an \textit{alert} is generated, which is
+referred to as \textit{Kivealert}. The alert contains data in json format,
+providing various information about the event.
+
+An example alert is the following:
+
+\begin{verbatim}
+{
+  "kive-aler-version": "v1",
+  "kive-policy-name": "kive-sample-policy",
+  "timestamp": "2025-08-02T16:51:19Z",
+  "metadata": {
+    "path": "/secret.txt",
+    "inode": 16256084,
+    "mask": 36,
+    "kernel-id": "2c147a95-23e5-4f99-a2de-67d5e9fdb502"
+  },
+  "custom-metadata": {
+    "severity": "critical",
+  },
+  "pod": {
+    "name": "nginx-pod",
+    "namespace": "default",
+    "container": {
+      "id": "containerd://0c37512624823392d71e99...",
+      "name": "nginx"
+    }
+  },
+  "node": {
+    "name": "kive-worker"
+  },
+  "process": {
+    "pid": 176928,
+    "tgid": 176928,
+    "uid": 0,
+    "gid": 0,
+    "binary": "/usr/bin/cat",
+    "cwd": "/",
+    "arguments": "/secret.txt -"
+  }
+}
+\end{verbatim}
+
+\subsection{Components}
+
+The components used by the application are:
+
+\begin{itemize}
+
+  \item \textit{discover controller}: collects data from the files to monitor,
+    such as inode number and device id. Manages the \path{KivePolicy} resource.
+    There must be one discover controller for each node. This is necessary
+    because the controller has to interface directly to the container runtime
+    and access the filesystem of the container in order to read the inode.
+    Therefore, each discover controller instance will react to all the changes
+    in the \path{KivePolicy} resource, and generate one or multiple
+    \path{KiveData} resource[s] for this specific kernel. Any discover
+    controller[s] may generate multiple \path{KiveData} resources from the same
+    \path{KivePolicy}. This is intended by design since the policy may match
+    multiple pods hence the relationship between a policy and a \path{KiveData}
+    is one to many.
+
+  \item \textit{loader controller}: loads and updates the eBPF program into the
+    kernel. Generates alerts, called \path{KiveAlerts} and manages the
+    \path{KiveData} resource. There must be one loader controller for each
+    running kernel. This is necessary because the loader interacts directly with
+    the running kernel. It is useless to have multiple loaders in the same
+    kernel, but at least one is necessary to load the eBPF program. To implement
+    this, each node needs to fetch its running kernel identifier and then run
+    elections so that only one node is elected per running kernel.
+
+  \item \textit{eBPF program}: informs the loader that one of the monitored
+    files was accessed, communication additional information from the kernel.
+
+  \item \textit{pod controller}: reacts to changes in Kubernetes pods to update
+    the state of the application. Since Pods are global resources accessed from
+    anywhere, we need only one pod controller in the cluster.
+
+\end{itemize}
+
+\section{Detecting file accesses}
+
+The application uses an eBPF program to monitor file accesses. The eBPF program
+is executed when a certain kernel function is called through a kprobe; it will
+check if the probed function interacts with any of the monitored files specified
+by the user. If that is the case, then it logs the event with additional
+metadata, such as which process ID that called the function. The choice of what
+function to hook to is crucial for the correct behaviour of the application.
+
+The information of which files to check is provided from userspace to the eBPF
+program via a map, which is a shared array between userspace and kernelspace and
+can be read from and written to by both actors.
+
+The eBPF program needs to be loaded and updated when the user changes the
+monitoring policy (\path{KivePolicy}) or the cluster changes or updates its
+topology.
+
+\subsection{Uniquely identifying a file}
+
+To identify a particular file, a simple solution is to use its path. There
+cannot be two different files with the same path name, however symbolic links
+(\textit{symlinks}) can alias a file thereby accessing its contents though a
+different path. To circumvent this, Kivebpf is using the inode number instead:
+each file has an inode number that is unique in the filesystem where it is saved
+in, is is used by the filesystem to internally identify data. Yet, there is
+still a case that needs to be taken into account: different filesystems may have
+different files with the same inode number. This happens because the inode
+number is an identifier in a particular filesystem, but it may identify a
+different file in another filesystem. To solve this problem, Kivebpf uses both
+the inode number and the device id, which is unique per filesystem, to generate
+an unique identifier. Even if a filesystem is binded onto another, the binded
+filesystem and the filesystem onto which the binded one is mounted onto have
+different inode numbers, hence the key remains unique.
+
+The component that is responsible to fetch the inode number is the discover
+controller. The loader controller and the discover controller share information
+through a \path{KiveData} resource.
 
 \section{eBPF Program}
 
-TODO
+To check whether an actor has interacted with a file, the eBPF program hooks to
+the function \path{inode_permission} through a keyprobe. This function gets
+called every time the permissions of an inode are checked in the kernel, which
+appends before any operation on files. This hook allows the eBPF program to log
+information whenever a permission is checked, accessing the permissions
+requested, as well as the process id that tried to check the permissions. The
+eBPF program uses BTF types information to enable compile-once run everywhere
+(CO-RE). It will log information only if the probed function is called on an
+inode present in an \path{KiveData} resource. The loader will fetch those inodes
+and send them to the eBPF program via a map that contains an array of inodes and
+devices ids. The traced information is sent to userspace via a ringbuffer
+accessible by the operator for logging purposes. These are then processed by the
+loader to generate a \path{KiveAlert}.
+
+\subsection{Implementation}
+
+Implementation code of the eBPF program:
+
+\path{maps.h}:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#ifndef _HIVE_MAPS_H_
+#define _HIVE_MAPS_H_
+
+#include "vmlinux.h"
+#include "log_data.h"
+#include <bpf/bpf_helpers.h>
+
+#define MAP_MAX_ENTRIES 1024
+
+struct map_key {
+  long unsigned int inode;
+  dev_t dev;
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __type(key, struct map_key);
+  __type(value, u8);
+  __uint(max_entries, MAP_MAX_ENTRIES);
+} traced_inodes SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, 1 << 24);
+  __type(value, struct log_data);
+} rb SEC(".maps");
+
+#endif // _HIVE_MAPS_H_
+\end{Verbatim}
+
+\path{log_data.h}:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#ifndef _HIVE_DATA_H_
+#define _HIVE_DATA_H_
+
+#include "vmlinux.h"
+
+#ifndef TASK_COMM_LEN
+#define TASK_COMM_LEN 16
+#endif
+
+struct log_data {
+  pid_t pid;                /* process id */
+  gid_t tgid;               /* thread group id */
+  uid_t uid;                /* user id */
+  gid_t gid;                /* group id */
+  dev_t dev;                /* device id */
+  long unsigned int ino;    /* inode number */
+  int mask;                 /* Octal representation of file permissions */
+  char comm[TASK_COMM_LEN]; /* name of the executable of the task */
+};
+
+#endif // _HIVE_DATA_H_
+\end{Verbatim}
+
+\path{tracer.bpf.c}:
+
+\begin{Verbatim}[numbers=left, numbersep=5pt, frame=single]
+#include "vmlinux.h"
+#include "maps.h"
+#include "log_data.h"
+#include "license.h"
+
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/bpf_core_read.h>
+
+/*
+ *  Fill and send struct log_data to the ring buffer.
+ */
+static __always_inline void
+kprobe_output(long unsigned int inode, dev_t dev, int mask)
+{
+  struct log_data data = {};
+
+  __u64 pid_tgid = bpf_get_current_pid_tgid();
+  __u64 uid_gid = bpf_get_current_uid_gid();
+
+  data.tgid = pid_tgid >> 32;
+  data.pid = (gid_t) pid_tgid;
+  data.gid = uid_gid >> 32;
+  data.uid = (gid_t) uid_gid;
+  data.ino = inode;
+  data.dev = dev;
+  data.mask = mask;
+  bpf_get_current_comm(data.comm, TASK_COMM_LEN);
+
+  bpf_ringbuf_output(&rb, &data, sizeof(struct log_data), 0);
+}
+
+/*
+ *  Probed function:
+ *  int inode_permission(struct mnt_idmap *idmap,
+ *                       struct inode *inode, int mask)
+ *  Description: Check if accessing an inode is allowed
+ */
+// kprobe_inode_permission_old should be loaded on kernels < 5.12
+SEC("kprobe/inode_permission")
+int kprobe_inode_permission_old(struct pt_regs *ctx)
+{
+  struct inode *inode = (struct inode*) PT_REGS_PARM1(ctx);
+  int mask = (int) PT_REGS_PARM2(ctx);
+
+  if (!inode)
+    return 0;
+
+  long unsigned int ino = BPF_CORE_READ(inode, i_ino);
+  dev_t dev = BPF_CORE_READ(inode, i_sb, s_dev);
+  struct map_key key = {};
+  key.inode = ino;
+  key.dev   = dev;
+
+  if (bpf_map_lookup_elem(&traced_inodes, &key)) {
+    kprobe_output(ino, dev, mask);
+    return 0;
+  }
+
+  return 0;
+}
+
+// kprobe_inode_permission_new should be loaded on kernels >= 5.12
+SEC("kprobe/inode_permission")
+int kprobe_inode_permission_new(struct pt_regs *ctx)
+{
+  struct inode *inode = (struct inode*) PT_REGS_PARM2(ctx);
+  int mask = (int) PT_REGS_PARM3(ctx);
+
+  if (!inode)
+    return 0;
+
+  long unsigned int ino = BPF_CORE_READ(inode, i_ino);
+  dev_t dev = BPF_CORE_READ(inode, i_sb, s_dev);
+  struct map_key key = {};
+  key.inode = ino;
+  key.dev   = dev;
+
+  if (bpf_map_lookup_elem(&traced_inodes, &key)) {
+    kprobe_output(ino, dev, mask);
+    return 0;
+  }
+
+  return 0;
+}
+\end{Verbatim}

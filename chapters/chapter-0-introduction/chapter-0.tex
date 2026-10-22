@@ -1,15 +1,24 @@
 \chapter{Introduction}
 
 A \textit{trace} is a record of various information about the execution of a
-software program. Because modern operating systems are responsible of many
-critical tasks, such as interacting with network and storage devices, or to
-virtualise and sandbox untrusted processes, it is natural that deep and dynamic
-kernel \textit{tracing} is an important features of an operating system. In
+program. Modern operating systems are responsible of several critical tasks,
+such as interacting with network and storage devices, to virtualise and sandbox
+untrusted processes, and to enforce security policies. For this reason, deep and
+dynamic kernel tracing has become a relevant concern for operating systems. In
 fact, tracing is useful for many use cases, including performance evaluation and
 optimization, security and policy enforcement, and observability, among others.
+Linux is a popular operating system widely used in data centers,
+high-performance computing and embedded systems; it supports a wide set of
+instrumentation capabilities for many use-cases, yet a comprehensive study of
+these is currently unavailable as documentation is often limited or outdated.
 The objective of this work is to understand the systems and interfaces
-implemented in Linux to perform high-throughput tracing of events, as of version
-7.2 of the kernel released on 16 August 2026.
+implemented in the Linux kernel to support tracing of events, as of version 7.2
+of the kernel released on 16 August 2026. To this end, a thorough analysis of
+the source code was conducted; additional information was gathered from commit
+messages, discussions in mailing lists and forums, and presentations in public
+conventions. Cross referencing this heterogeneous body of information was
+instrumental to develop an understanding of the reasons and technical merits of
+Linux's tracing infrastructure, and how it evolved over time.
 
 Chapter 2 provides a description of classic Linux tracing framewors, focusing on
 the two most used ones: \textit{ftrace} and \textit{perf}. Chapter 3 describes
@@ -18,8 +27,8 @@ introduces \textit{Kevebpf} as a modern tracing application. Chapter 6 closes
 with the conclusions.
 
 Artificial intelligence, more specifically Large Language Models, was used to
-gather information from the internet, and to check the writing quality of
-limited parts of this work.
+gather information from the internet and to check the writing quality of parts
+of this work.
 
 \section{The tracing stack}
 

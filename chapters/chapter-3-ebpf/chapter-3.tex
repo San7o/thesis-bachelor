@@ -873,7 +873,7 @@ similar ones are used to modify its contents. The specific implementation of
 these functions depends on how the specific map wants to handle the data.
 
 After defining the various operations for a map and defining static storage for
-a \verb|struct bpf_maps_ops|, the map is registered with all maps by appending
+a \path{struct bpf_maps_ops}, the map is registered with all maps by appending
 its name to the \path{$LINUX/include/linux/bpf_types.h} in the macro
 \verb|BPF_MAP_TYPE()|. All map entries from this file will be saved in a global
 array of maps in the following manner:
