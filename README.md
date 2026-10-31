@@ -18,6 +18,8 @@ Finally, a real-world use case for eBPF in containerized environments is
 studied, introducing Kivebpf as an application that leverages modern Linux
 tracing infrastructure.
 
+[Read online](https://san7o.github.io/thesis-bachelor/)
+
 ## Table of Contents
 
 - Abstract
